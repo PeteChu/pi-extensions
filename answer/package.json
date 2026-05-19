@@ -1,0 +1,27 @@
+{
+  "name": "pi-answer-studio",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Redesigned interactive Q&A extraction extension for pi",
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
+  "scripts": {
+    "test": "node --import tsx --test ./tests/utils.test.ts ./tests/qna-adapter.test.ts ./tests/index.test.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.2"
+  }
+}
