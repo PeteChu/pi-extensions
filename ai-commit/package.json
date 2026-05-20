@@ -1,0 +1,25 @@
+{
+  "name": "pi-ai-commit",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Generate Conventional Commit messages from staged changes for pi",
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
+  "scripts": {
+    "test": "node --import tsx --test ./tests/utils.test.ts ./tests/index.test.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.2"
+  }
+}
