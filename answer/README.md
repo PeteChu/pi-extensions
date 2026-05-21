@@ -4,12 +4,9 @@ Extracts questions from the last assistant message, lets you answer them in a te
 
 ## Install
 
-This directory lives at `~/.pi/agent/extensions/answer`. Run `/reload` in Pi to activate.
-
-To install from another location:
-
 ```bash
-pi install /path/to/answer
+pi install npm:@petechu/pi-answer-studio
+/reload
 ```
 
 ## Usage
@@ -64,11 +61,3 @@ The extension reads `answer` settings from Pi's global agent settings and projec
 ```
 
 Template placeholders: `{{question}}`, `{{context}}`, `{{answer}}`, `{{index}}`, `{{total}}`.
-
-## Tests
-
-From the cloned source:
-
-```bash
-pnpm test -- answer/tests/utils.test.ts answer/tests/qna-adapter.test.ts answer/tests/index.test.ts
-```

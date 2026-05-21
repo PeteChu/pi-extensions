@@ -2,9 +2,16 @@
 
 Pi extension that lets you enable or disable installed Pi extensions, skills, prompts, and themes from inside an interactive Pi session.
 
+## Install
+
+```bash
+pi install npm:@petechu/pi-extension-toggle
+/reload
+```
+
 ## Usage
 
-Install or load this package as a Pi package, then run:
+After installing, run:
 
 ```text
 /extension-toggle

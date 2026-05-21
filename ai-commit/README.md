@@ -4,12 +4,9 @@ Generates a git commit message following the Conventional Commit style, asks you
 
 ## Install
 
-This directory lives at `~/.pi/agent/extensions/pi-ai-commit`. Run `/reload` in Pi to activate.
-
-To install from another location:
-
 ```bash
-pi install /path/to/pi-ai-commit
+pi install npm:@petechu/pi-ai-commit
+/reload
 ```
 
 ## Usage
@@ -50,17 +47,3 @@ The extension reads `aiCommit` settings from Pi's global agent settings and proj
 ```
 
 If none of the configured `generationModels` are available, `/commit` falls back to the currently selected Pi model.
-
-## Tests
-
-From the cloned source:
-
-```bash
-pnpm --dir pi-ai-commit test
-```
-
-Or from this package directory:
-
-```bash
-pnpm test
-```
