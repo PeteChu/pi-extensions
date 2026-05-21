@@ -4,37 +4,48 @@ import {
   SettingsManager,
   type ExtensionAPI,
   type ExtensionCommandContext,
-  type ResolvedResource,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import {
   assertToggleableScope,
-  buildExtensionOptions,
-  getExtensionPattern,
-  togglePackageSources,
-  toggleTargetEnabled,
-  toggleTopLevelExtensionPaths,
+  buildSourceOptions,
+  isSourceEnabled,
+  toggleAllPackageResources,
+  toggleTopLevelResourcePaths,
   type ExtensionOption,
 } from "./utils";
 
 const COMMAND_NAME = "extension-toggle";
 
+interface ExtensionToggleSelection {
+  option: ExtensionOption;
+  enabled: boolean;
+}
+
 class ExtensionMultiSelect implements Component {
   private selectedIndex = 0;
-  private readonly selectedIndexes = new Set<number>();
+  private readonly checkedIndexes = new Set<number>();
+  private readonly initialCheckedIndexes = new Set<number>();
   private readonly maxVisible = 12;
 
   constructor(
     private readonly options: ExtensionOption[],
-    private readonly done: (result: ExtensionOption[] | null) => void,
-  ) {}
+    private readonly done: (result: ExtensionToggleSelection[] | null) => void,
+  ) {
+    for (let i = 0; i < options.length; i++) {
+      if (isSourceEnabled(options[i].resources)) {
+        this.checkedIndexes.add(i);
+        this.initialCheckedIndexes.add(i);
+      }
+    }
+  }
 
   invalidate() {}
 
   render(width: number): string[] {
     const lines = [
-      "Select extensions to toggle",
-      "space: select/unselect · enter: apply · esc: cancel",
+      "Enable or disable sources",
+      "space: check/uncheck · enter: apply · esc: cancel",
       "",
     ];
 
@@ -50,8 +61,9 @@ class ExtensionMultiSelect implements Component {
     for (let i = startIndex; i < endIndex; i++) {
       const option = this.options[i];
       const cursor = i === this.selectedIndex ? ">" : " ";
-      const selected = this.selectedIndexes.has(i) ? "[*]" : "[ ]";
-      const status = option.resource.enabled ? "Enabled" : "Disabled";
+      const checked = this.checkedIndexes.has(i);
+      const selected = checked ? "[x]" : "[ ]";
+      const status = checked ? "Enabled" : "Disabled";
       lines.push(
         truncateToWidth(`${cursor} ${selected} ${option.label} · ${status}`, width, "..."),
       );
@@ -59,10 +71,10 @@ class ExtensionMultiSelect implements Component {
 
     if (this.options.length > this.maxVisible) {
       lines.push(
-        `(${this.selectedIndex + 1}/${this.options.length}) ${this.selectedIndexes.size} selected`,
+        `(${this.selectedIndex + 1}/${this.options.length}) ${this.checkedIndexes.size} enabled`,
       );
     } else {
-      lines.push(`${this.selectedIndexes.size} selected`);
+      lines.push(`${this.checkedIndexes.size} enabled`);
     }
 
     return lines;
@@ -80,19 +92,25 @@ class ExtensionMultiSelect implements Component {
     }
 
     if (data === " ") {
-      if (this.selectedIndexes.has(this.selectedIndex)) {
-        this.selectedIndexes.delete(this.selectedIndex);
+      if (this.checkedIndexes.has(this.selectedIndex)) {
+        this.checkedIndexes.delete(this.selectedIndex);
       } else {
-        this.selectedIndexes.add(this.selectedIndex);
+        this.checkedIndexes.add(this.selectedIndex);
       }
       return;
     }
 
     if (data === "\r" || data === "\n") {
       this.done(
-        [...this.selectedIndexes]
-          .sort((a, b) => a - b)
-          .map((index) => this.options[index]),
+        this.options
+          .map((option, index) => ({
+            option,
+            enabled: this.checkedIndexes.has(index),
+            changed:
+              this.checkedIndexes.has(index) !== this.initialCheckedIndexes.has(index),
+          }))
+          .filter((selection) => selection.changed)
+          .map(({ option, enabled }) => ({ option, enabled })),
       );
       return;
     }
@@ -106,7 +124,7 @@ class ExtensionMultiSelect implements Component {
 async function selectExtensionToggles(
   ctx: ExtensionCommandContext,
   options: ExtensionOption[],
-): Promise<ExtensionOption[] | null> {
+): Promise<ExtensionToggleSelection[] | null> {
   return await ctx.ui.custom((_, _theme, _kb, done) => {
     return new ExtensionMultiSelect(options, done);
   });
@@ -122,29 +140,33 @@ export async function discoverExtensionResources(ctx: Pick<ExtensionCommandConte
   });
   const resolvedPaths = await packageManager.resolve();
 
-  return { agentDir, settingsManager, extensions: resolvedPaths.extensions };
+  return {
+    agentDir,
+    settingsManager,
+    extensions: resolvedPaths.extensions,
+    skills: resolvedPaths.skills,
+    prompts: resolvedPaths.prompts,
+    themes: resolvedPaths.themes,
+  };
 }
 
 function applyExtensionToggle(
   settingsManager: SettingsManager,
-  resource: ResolvedResource,
-  cwd: string,
-  agentDir: string,
+  option: ExtensionOption,
+  enabled: boolean,
 ): boolean {
-  assertToggleableScope(resource.metadata.scope);
+  const first = option.resources[0];
+  if (!first) return false;
+  assertToggleableScope(first.metadata.scope);
 
-  const enabled = toggleTargetEnabled(resource);
-  const pattern = getExtensionPattern(resource, cwd, agentDir);
-
-  if (resource.metadata.origin === "package") {
+  if (option.origin === "package") {
     const settings =
-      resource.metadata.scope === "project"
+      first.metadata.scope === "project"
         ? settingsManager.getProjectSettings()
         : settingsManager.getGlobalSettings();
-    const result = togglePackageSources(
+    const result = toggleAllPackageResources(
       settings.packages,
-      resource.metadata.source,
-      pattern,
+      option.sourceKey,
       enabled,
     );
 
@@ -152,7 +174,7 @@ function applyExtensionToggle(
       return false;
     }
 
-    if (resource.metadata.scope === "project") {
+    if (first.metadata.scope === "project") {
       settingsManager.setProjectPackages(result.packages);
     } else {
       settingsManager.setPackages(result.packages);
@@ -160,20 +182,50 @@ function applyExtensionToggle(
     return true;
   }
 
+  // origin === "top-level" — toggle this individual local resource
   const settings =
-    resource.metadata.scope === "project"
+    first.metadata.scope === "project"
       ? settingsManager.getProjectSettings()
       : settingsManager.getGlobalSettings();
-  const extensions = toggleTopLevelExtensionPaths(
-    settings.extensions,
-    pattern,
+  const resourceType = option.resourceType;
+  if (!resourceType) return false;
+
+  const updatedPaths = toggleTopLevelResourcePaths(
+    settings[resourceType],
+    option.sourceKey,
     enabled,
   );
 
-  if (resource.metadata.scope === "project") {
-    settingsManager.setProjectExtensionPaths(extensions);
+  if (first.metadata.scope === "project") {
+    switch (resourceType) {
+      case "extensions":
+        settingsManager.setProjectExtensionPaths(updatedPaths);
+        break;
+      case "skills":
+        settingsManager.setProjectSkillPaths(updatedPaths);
+        break;
+      case "prompts":
+        settingsManager.setProjectPromptTemplatePaths(updatedPaths);
+        break;
+      case "themes":
+        settingsManager.setProjectThemePaths(updatedPaths);
+        break;
+    }
   } else {
-    settingsManager.setExtensionPaths(extensions);
+    switch (resourceType) {
+      case "extensions":
+        settingsManager.setExtensionPaths(updatedPaths);
+        break;
+      case "skills":
+        settingsManager.setSkillPaths(updatedPaths);
+        break;
+      case "prompts":
+        settingsManager.setPromptTemplatePaths(updatedPaths);
+        break;
+      case "themes":
+        settingsManager.setThemePaths(updatedPaths);
+        break;
+    }
   }
   return true;
 }
@@ -186,12 +238,15 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
     return;
   }
 
-  const { agentDir, settingsManager, extensions } =
+  const { agentDir, settingsManager, extensions, skills, prompts, themes } =
     await discoverExtensionResources(ctx);
-  const options = buildExtensionOptions(extensions, ctx.cwd, agentDir);
+  const options = buildSourceOptions(extensions, skills, prompts, themes, {
+    cwd: ctx.cwd,
+    agentDir,
+  });
 
   if (options.length === 0) {
-    ctx.ui.notify("No global or project extensions found", "info");
+    ctx.ui.notify("No toggleable sources found", "info");
     return;
   }
 
@@ -203,17 +258,16 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
   }
 
   if (selectedOptions.length === 0) {
-    ctx.ui.notify("No extensions selected", "info");
+    ctx.ui.notify("No changes selected", "info");
     return;
   }
 
-  const changedOptions: ExtensionOption[] = [];
+  const changedOptions: ExtensionToggleSelection[] = [];
   for (const selected of selectedOptions) {
     const changed = applyExtensionToggle(
       settingsManager,
-      selected.resource,
-      ctx.cwd,
-      agentDir,
+      selected.option,
+      selected.enabled,
     );
 
     if (changed) {
@@ -222,7 +276,7 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
   }
 
   if (changedOptions.length === 0) {
-    ctx.ui.notify("Could not update settings for the selected extensions", "error");
+    ctx.ui.notify("Could not update settings for the selected sources", "error");
     return;
   }
 
@@ -238,9 +292,7 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
     return;
   }
 
-  const enabledCount = changedOptions.filter((option) =>
-    toggleTargetEnabled(option.resource),
-  ).length;
+  const enabledCount = changedOptions.filter((selection) => selection.enabled).length;
   const disabledCount = changedOptions.length - enabledCount;
   const summary = [
     enabledCount > 0 ? `${enabledCount} enabled` : undefined,
@@ -249,11 +301,11 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
     .filter((part): part is string => part !== undefined)
     .join(", ");
 
-  ctx.ui.notify(`Updated ${changedOptions.length} extension(s): ${summary}`, "info");
+  ctx.ui.notify(`Updated ${changedOptions.length} source(s): ${summary}`, "info");
 
   const reload = await ctx.ui.confirm(
     "Reload now?",
-    "Reload extensions now so the change takes effect immediately?",
+    "Reload now so the change takes effect immediately?",
   );
 
   if (!reload) {
@@ -266,7 +318,7 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand(COMMAND_NAME, {
-    description: "Enable or disable installed Pi extensions and optionally reload",
+    description: "Enable or disable installed Pi extensions, skills, prompts, and themes",
     handler: async (_args, ctx) => extensionToggleHandler(ctx),
   });
 }

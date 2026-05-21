@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import type { ResolvedResource } from "@earendil-works/pi-coding-agent";
 import {
-  buildExtensionLabel,
-  buildExtensionOptions,
+  buildSourceOptions,
   getPackagePattern,
   getTopLevelPattern,
   isExtensionToggleManager,
+  isSourceEnabled,
+  toggleAllPackageResources,
+  toggleAllTopLevelResources,
   togglePackageSources,
   toggleTopLevelExtensionPaths,
   withoutExistingPattern,
@@ -90,67 +92,6 @@ describe("extension-toggle utils", () => {
     });
   });
 
-  it("builds package and project labels", () => {
-    const cwd = "/work/project";
-    const agentDir = "/home/user/.pi/agent";
-    const packageResource = resource({
-      path: "/packages/example/index.ts",
-      enabled: true,
-      source: "npm:example-package",
-      scope: "user",
-      origin: "package",
-      baseDir: "/packages/example",
-    });
-    const projectResource = resource({
-      path: path.join(cwd, ".pi", "extensions", "local.ts"),
-      enabled: false,
-      source: "auto",
-      scope: "project",
-      origin: "top-level",
-      baseDir: path.join(cwd, ".pi"),
-    });
-
-    assert.equal(
-      buildExtensionLabel(packageResource, cwd, agentDir),
-      "[x] npm:example-package (global) index.ts",
-    );
-    assert.equal(
-      buildExtensionLabel(projectResource, cwd, agentDir),
-      "[ ] Project (.pi/) extensions/local.ts",
-    );
-  });
-
-  it("builds unique selector labels", () => {
-    const cwd = "/work/project";
-    const agentDir = "/home/user/.pi/agent";
-    const resources = [
-      resource({
-        path: "/packages/example/index.ts",
-        enabled: true,
-        source: "npm:example-package",
-        scope: "user",
-        origin: "package",
-        baseDir: "/packages/example",
-      }),
-      resource({
-        path: "/packages/example/index.ts",
-        enabled: true,
-        source: "npm:example-package",
-        scope: "user",
-        origin: "package",
-        baseDir: "/packages/example",
-      }),
-    ];
-
-    assert.deepEqual(
-      buildExtensionOptions(resources, cwd, agentDir).map((option) => option.label),
-      [
-        "[x] npm:example-package (global) index.ts",
-        "[x] npm:example-package (global) index.ts #2",
-      ],
-    );
-  });
-
   it("computes package and top-level patterns", () => {
     const cwd = "/work/project";
     const agentDir = "/home/user/.pi/agent";
@@ -200,8 +141,201 @@ describe("extension-toggle utils", () => {
     );
   });
 
-  it("does not build selector options for this manager extension", () => {
-    const options = buildExtensionOptions(
+  it("detects source enabled state", () => {
+    const enabledResources = [
+      resource({
+        path: "/packages/example/ext.ts",
+        enabled: true,
+        source: "npm:example",
+        scope: "user",
+        origin: "package",
+      }),
+      resource({
+        path: "/packages/example/skill.md",
+        enabled: false,
+        source: "npm:example",
+        scope: "user",
+        origin: "package",
+      }),
+    ];
+    assert.equal(isSourceEnabled(enabledResources), true);
+
+    const disabledResources = [
+      resource({
+        path: "/packages/example/ext.ts",
+        enabled: false,
+        source: "npm:example",
+        scope: "user",
+        origin: "package",
+      }),
+    ];
+    assert.equal(isSourceEnabled(disabledResources), false);
+
+    const emptyResources: ResolvedResource[] = [];
+    assert.equal(isSourceEnabled(emptyResources), false);
+  });
+
+  it("groups resources by source and builds options", () => {
+    const options = buildSourceOptions(
+      // extensions
+      [
+        resource({
+          path: "/packages/a/index.ts",
+          enabled: true,
+          source: "npm:package-a",
+          scope: "user",
+          origin: "package",
+        }),
+        resource({
+          path: "/packages/b/index.ts",
+          enabled: false,
+          source: "npm:package-b",
+          scope: "user",
+          origin: "package",
+        }),
+      ],
+      // skills
+      [
+        resource({
+          path: "/packages/a/skill.md",
+          enabled: true,
+          source: "npm:package-a",
+          scope: "user",
+          origin: "package",
+        }),
+      ],
+      // prompts
+      [
+        resource({
+          path: "/packages/a/prompt.md",
+          enabled: true,
+          source: "npm:package-a",
+          scope: "user",
+          origin: "package",
+        }),
+      ],
+      // themes
+      [
+        resource({
+          path: "/packages/a/theme.json",
+          enabled: true,
+          source: "npm:package-a",
+          scope: "user",
+          origin: "package",
+        }),
+      ],
+    );
+
+    assert.equal(options.length, 2);
+
+    const optionA = options.find((o) => o.sourceKey === "npm:package-a");
+    assert.ok(optionA);
+    assert.equal(optionA.label, "npm:package-a (global)");
+    assert.equal(optionA.origin, "package");
+    assert.equal(optionA.scope, "user");
+    assert.equal(optionA.resources.length, 4); // ext, skill, prompt, theme
+
+    const optionB = options.find((o) => o.sourceKey === "npm:package-b");
+    assert.ok(optionB);
+    assert.equal(optionB.resources.length, 1); // just the extension
+  });
+
+  it("builds individual top-level resource options", () => {
+    const options = buildSourceOptions(
+      // extensions
+      [
+        resource({
+          path: "/home/user/.pi/agent/extensions/a.ts",
+          enabled: true,
+          source: "auto",
+          scope: "user",
+          origin: "top-level",
+          baseDir: "/home/user/.pi/agent",
+        }),
+        resource({
+          path: "/work/project/.pi/extensions/b.ts",
+          enabled: false,
+          source: "auto",
+          scope: "project",
+          origin: "top-level",
+          baseDir: "/work/project/.pi",
+        }),
+      ],
+      // skills
+      [
+        resource({
+          path: "/home/user/.pi/agent/skills/skill.md",
+          enabled: true,
+          source: "auto",
+          scope: "user",
+          origin: "top-level",
+          baseDir: "/home/user/.pi/agent",
+        }),
+      ],
+      // prompts
+      [],
+      // themes
+      [],
+    );
+
+    assert.equal(options.length, 3);
+
+    const globalExtOpt = options.find((o) => o.sourceKey === "extensions/a.ts");
+    assert.ok(globalExtOpt);
+    assert.equal(globalExtOpt.label, "a.ts (global extension)");
+    assert.equal(globalExtOpt.origin, "top-level");
+    assert.equal(globalExtOpt.scope, "user");
+    assert.equal(globalExtOpt.resourceType, "extensions");
+
+    const projectExtOpt = options.find((o) => o.sourceKey === "extensions/b.ts");
+    assert.ok(projectExtOpt);
+    assert.equal(projectExtOpt.label, "b.ts (project extension)");
+    assert.equal(projectExtOpt.resourceType, "extensions");
+
+    const globalSkillOpt = options.find((o) => o.sourceKey === "skills/skill.md");
+    assert.ok(globalSkillOpt);
+    assert.equal(globalSkillOpt.label, "skill.md (global skill)");
+    assert.equal(globalSkillOpt.resourceType, "skills");
+  });
+
+  it("shows custom extension directories by name", () => {
+    const options = buildSourceOptions(
+      [
+        resource({
+          path: "/home/user/.pi/agent/extensions/ai-commit/index.ts",
+          enabled: true,
+          source: "auto",
+          scope: "user",
+          origin: "top-level",
+          baseDir: "/home/user/.pi/agent",
+        }),
+        resource({
+          path: "/home/user/.pi/agent/extensions/answer/index.ts",
+          enabled: true,
+          source: "auto",
+          scope: "user",
+          origin: "top-level",
+          baseDir: "/home/user/.pi/agent",
+        }),
+      ],
+      [],
+      [],
+      [],
+    );
+
+    assert.deepEqual(
+      options.map((option) => option.label),
+      ["ai-commit (global extension)", "answer (global extension)"],
+    );
+    assert.deepEqual(
+      options.map((option) => option.sourceKey),
+      ["extensions/ai-commit/index.ts", "extensions/answer/index.ts"],
+    );
+  });
+
+  it("excludes toggle manager from grouped options", () => {
+    const options = buildSourceOptions(
+      // extensions — includes the toggle manager
       [
         resource({
           path: "/packages/pi-extension-toggle/index.ts",
@@ -220,13 +354,112 @@ describe("extension-toggle utils", () => {
           baseDir: "/packages/other",
         }),
       ],
-      "/work/project",
-      "/home/user/.pi/agent",
+      // skills — none from the toggle manager
+      [],
+      // prompts
+      [],
+      // themes
+      [],
     );
 
-    assert.deepEqual(options.map((option) => option.label), [
-      "[x] npm:other (global) index.ts",
-    ]);
+    assert.equal(options.length, 1);
+    assert.equal(options[0].sourceKey, "npm:other");
+  });
+
+  it("disables all resources for a package", () => {
+    const result = toggleAllPackageResources(
+      [
+        {
+          source: "npm:example-package",
+          extensions: ["+extensions/main.ts"],
+          skills: ["+skills/review.md"],
+        },
+      ],
+      "npm:example-package",
+      false,
+    );
+
+    assert.equal(result.changed, true);
+    const pkg = result.packages[0] as { source: string; extensions?: string[]; skills?: string[]; prompts?: string[]; themes?: string[] };
+    assert.deepEqual(pkg.extensions, []);
+    assert.deepEqual(pkg.skills, []);
+    assert.deepEqual(pkg.prompts, []);
+    assert.deepEqual(pkg.themes, []);
+  });
+
+  it("enables all resources for a package by clearing filters", () => {
+    const result = toggleAllPackageResources(
+      [
+        {
+          source: "npm:example-package",
+          extensions: [],
+          skills: [],
+          prompts: [],
+          themes: [],
+        },
+      ],
+      "npm:example-package",
+      true,
+    );
+
+    assert.equal(result.changed, true);
+    const pkg = result.packages[0] as { source: string; extensions?: string[]; skills?: string[]; prompts?: string[]; themes?: string[] };
+    assert.equal(pkg.extensions, undefined);
+    assert.equal(pkg.skills, undefined);
+    assert.equal(pkg.prompts, undefined);
+    assert.equal(pkg.themes, undefined);
+  });
+
+  it("converts string package to object when disabling all resources", () => {
+    const result = toggleAllPackageResources(
+      ["npm:example-package"],
+      "npm:example-package",
+      false,
+    );
+
+    assert.equal(result.changed, true);
+    const pkg = result.packages[0] as { source: string; extensions?: string[] };
+    assert.deepEqual(pkg.extensions, []);
+    assert.deepEqual(pkg.skills, []);
+    assert.deepEqual(pkg.prompts, []);
+    assert.deepEqual(pkg.themes, []);
+  });
+
+  it("converts object to string when enabling all resources (all filters cleared)", () => {
+    const result = toggleAllPackageResources(
+      [
+        {
+          source: "npm:example-package",
+          extensions: [],
+          skills: [],
+          prompts: [],
+          themes: [],
+        },
+      ],
+      "npm:example-package",
+      true,
+    );
+
+    assert.equal(result.changed, true);
+    assert.equal(result.packages[0], "npm:example-package");
+  });
+
+  it("returns unchanged when package source not found", () => {
+    const result = toggleAllPackageResources(
+      ["npm:existing"],
+      "npm:missing",
+      false,
+    );
+
+    assert.equal(result.changed, false);
+    assert.deepEqual(result.packages, ["npm:existing"]);
+  });
+
+  it("toggles all top-level resources", () => {
+    // Disable
+    assert.deepEqual(toggleAllTopLevelResources(false), ["!*"]);
+    // Enable
+    assert.deepEqual(toggleAllTopLevelResources(true), []);
   });
 });
 

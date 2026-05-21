@@ -7,9 +7,20 @@ type ToggleableScope = "user" | "project";
 
 type PackageSourceObject = Extract<PackageSource, { source: string }>;
 
+export type ResourceType = "extensions" | "skills" | "prompts" | "themes";
+
+interface ResourceWithType {
+  resource: ResolvedResource;
+  type: ResourceType;
+}
+
 export interface ExtensionOption {
   label: string;
-  resource: ResolvedResource;
+  resources: ResolvedResource[];
+  sourceKey: string;
+  scope: "user" | "project";
+  origin: "package" | "top-level";
+  resourceType?: ResourceType;
 }
 
 export function isToggleableExtension(resource: ResolvedResource): boolean {
@@ -84,12 +95,70 @@ export function toggleExtensionPatterns(
   return updated;
 }
 
-export function toggleTopLevelExtensionPaths(
+export function toggleTopLevelResourcePaths(
   paths: string[] | undefined,
   exactPattern: string,
   enabled: boolean,
 ): string[] {
   return toggleExtensionPatterns(paths, exactPattern, enabled);
+}
+
+export const toggleTopLevelExtensionPaths = toggleTopLevelResourcePaths;
+
+export function toggleAllTopLevelResources(
+  enable: boolean,
+): string[] {
+  if (enable) {
+    return [];
+  }
+  return ["!*"];
+}
+
+export function toggleAllPackageResources(
+  packages: PackageSource[] | undefined,
+  source: string,
+  enable: boolean,
+): { packages: PackageSource[]; changed: boolean } {
+  const nextPackages = [...(packages ?? [])];
+  const packageIndex = nextPackages.findIndex((pkg) => {
+    return (typeof pkg === "string" ? pkg : pkg.source) === source;
+  });
+
+  if (packageIndex === -1) {
+    return { packages: nextPackages, changed: false };
+  }
+
+  const currentPackage = nextPackages[packageIndex];
+  const packageObject: PackageSourceObject =
+    typeof currentPackage === "string"
+      ? { source: currentPackage }
+      : { ...currentPackage };
+
+  if (enable) {
+    // Clear all filters to enable all resources
+    delete packageObject.extensions;
+    delete packageObject.skills;
+    delete packageObject.prompts;
+    delete packageObject.themes;
+  } else {
+    // Empty package filters explicitly disable all resources of that type.
+    packageObject.extensions = [];
+    packageObject.skills = [];
+    packageObject.prompts = [];
+    packageObject.themes = [];
+  }
+
+  const hasFilters =
+    packageObject.extensions !== undefined ||
+    packageObject.skills !== undefined ||
+    packageObject.prompts !== undefined ||
+    packageObject.themes !== undefined;
+
+  nextPackages[packageIndex] = hasFilters
+    ? packageObject
+    : packageObject.source;
+
+  return { packages: nextPackages, changed: true };
 }
 
 export function togglePackageSources(
@@ -130,9 +199,38 @@ export function togglePackageSources(
   return { packages: nextPackages, changed: true };
 }
 
-export function getExtensionSourceLabel(resource: ResolvedResource): string {
+function resourceTypeLabel(type: ResourceType): string {
+  switch (type) {
+    case "extensions":
+      return "extension";
+    case "skills":
+      return "skill";
+    case "prompts":
+      return "prompt";
+    case "themes":
+      return "theme";
+  }
+}
+
+function topLevelResourceName(pattern: string, type: ResourceType): string {
+  const parts = pattern.split("/").filter(Boolean);
+  if (parts[0] === type && parts.length >= 2) {
+    return parts.length >= 3 ? parts[1] : parts[parts.length - 1];
+  }
+  return parts[parts.length - 1] ?? pattern;
+}
+
+export function getExtensionSourceLabel(
+  resource: ResolvedResource,
+  type?: ResourceType,
+  pattern?: string,
+): string {
   if (resource.metadata.origin === "package") {
     return `${resource.metadata.source} (${scopeLabel(resource.metadata.scope)})`;
+  }
+
+  if (type && pattern) {
+    return `${topLevelResourceName(pattern, type)} (${scopeLabel(resource.metadata.scope)} ${resourceTypeLabel(type)})`;
   }
 
   if (resource.metadata.scope === "project") {
@@ -142,38 +240,72 @@ export function getExtensionSourceLabel(resource: ResolvedResource): string {
   return "Global (~/.pi/agent/)";
 }
 
-export function buildExtensionLabel(
-  resource: ResolvedResource,
-  cwd: string,
-  agentDir: string,
-): string {
-  const checkbox = resource.enabled ? "[x]" : "[ ]";
-  const sourceLabel = getExtensionSourceLabel(resource);
-  const pattern = getExtensionPattern(resource, cwd, agentDir);
-  return `${checkbox} ${sourceLabel} ${pattern}`;
+export function isSourceEnabled(resources: ResolvedResource[]): boolean {
+  return resources.some((r) => r.enabled);
 }
 
-export function buildExtensionOptions(
-  resources: ResolvedResource[],
-  cwd: string,
-  agentDir: string,
+export function buildSourceOptions(
+  extensions: ResolvedResource[],
+  skills: ResolvedResource[],
+  prompts: ResolvedResource[],
+  themes: ResolvedResource[],
+  context?: { cwd: string; agentDir: string },
 ): ExtensionOption[] {
-  const labels = new Map<string, number>();
+  // Filter out the toggle manager extension and non-toggleable resources
+  const allResources: ResourceWithType[] = [
+    ...extensions.map((resource) => ({ resource, type: "extensions" as const })),
+    ...skills.map((resource) => ({ resource, type: "skills" as const })),
+    ...prompts.map((resource) => ({ resource, type: "prompts" as const })),
+    ...themes.map((resource) => ({ resource, type: "themes" as const })),
+  ].filter(({ resource }) => isToggleableExtension(resource) && !isExtensionToggleManager(resource));
 
-  return resources
-    .filter((resource) =>
-      isToggleableExtension(resource) && !isExtensionToggleManager(resource),
-    )
-    .map((resource) => {
-      const baseLabel = buildExtensionLabel(resource, cwd, agentDir);
-      const count = labels.get(baseLabel) ?? 0;
-      labels.set(baseLabel, count + 1);
+  const groups = new Map<string, ResourceWithType[]>();
 
-      return {
-        label: count === 0 ? baseLabel : `${baseLabel} #${count + 1}`,
-        resource,
-      };
+  for (const entry of allResources) {
+    const { resource, type } = entry;
+    const key =
+      resource.metadata.origin === "package"
+        ? resource.metadata.source
+        : `${resource.metadata.scope}:${type}:${getTopLevelPattern(
+            resource,
+            context?.cwd ?? "",
+            context?.agentDir ?? "",
+          )}`;
+
+    const group = groups.get(key);
+    if (group) {
+      group.push(entry);
+    } else {
+      groups.set(key, [entry]);
+    }
+  }
+
+  const options: ExtensionOption[] = [];
+
+  for (const [key, entries] of groups) {
+    const first = entries[0];
+    const firstResource = first.resource;
+    const pattern =
+      firstResource.metadata.origin === "top-level"
+        ? getTopLevelPattern(
+            firstResource,
+            context?.cwd ?? "",
+            context?.agentDir ?? "",
+          )
+        : undefined;
+    const label = getExtensionSourceLabel(firstResource, first.type, pattern);
+
+    options.push({
+      label,
+      resources: entries.map((entry) => entry.resource),
+      sourceKey: firstResource.metadata.origin === "package" ? key : pattern ?? key,
+      scope: firstResource.metadata.scope,
+      origin: firstResource.metadata.origin,
+      resourceType: firstResource.metadata.origin === "top-level" ? first.type : undefined,
     });
+  }
+
+  return options;
 }
 
 export function isExtensionToggleManager(resource: ResolvedResource): boolean {
@@ -183,10 +315,6 @@ export function isExtensionToggleManager(resource: ResolvedResource): boolean {
     normalizedPath.includes(`/${EXTENSION_TOGGLE_PACKAGE_NAME}/`) ||
     normalizedPath.includes("/extension-toggle/")
   );
-}
-
-export function toggleTargetEnabled(resource: ResolvedResource): boolean {
-  return !resource.enabled;
 }
 
 export function assertToggleableScope(
