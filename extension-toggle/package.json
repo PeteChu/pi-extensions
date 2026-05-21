@@ -1,5 +1,5 @@
 {
-  "name": "pi-extension-toggle",
+  "name": "@petechu/pi-extension-toggle",
   "version": "0.1.0",
   "type": "module",
   "description": "Enable or disable installed Pi extensions from inside Pi",

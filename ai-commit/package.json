@@ -1,5 +1,5 @@
 {
-  "name": "pi-ai-commit",
+  "name": "@petechu/pi-ai-commit",
   "version": "0.1.0",
   "type": "module",
   "description": "Generate Conventional Commit messages from staged changes for pi",

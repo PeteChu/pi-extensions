@@ -1,5 +1,5 @@
 {
-  "name": "pi-answer-studio",
+  "name": "@petechu/pi-answer-studio",
   "version": "0.1.0",
   "type": "module",
   "description": "Redesigned interactive Q&A extraction extension for pi",
