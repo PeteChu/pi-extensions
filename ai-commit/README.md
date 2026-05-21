@@ -1,6 +1,6 @@
 # AI Commit
 
-Generates a git commit message follow the Conventional Commit style, asks you to confirm or regenerate it, then runs `git commit -m "<message>"`. Trigger with `/commit`.
+Generates a git commit message following the Conventional Commit style, asks you to confirm, edit, or regenerate it, then runs `git commit -m "<message>"`. Trigger with `/commit`.
 
 ## Install
 
@@ -22,7 +22,7 @@ pi install /path/to/pi-ai-commit
 
 2. Run `/commit` in Pi.
 3. Review the generated Conventional Commit subject.
-4. Choose **Commit** to run `git commit -m`, **Regenerate** to ask the model for a new message, or **Cancel**.
+4. Choose **Commit** to run `git commit -m`, **Edit** to revise the generated message first, **Regenerate** to ask the model for a new message, or **Cancel**.
 
 ## Skipped files
 

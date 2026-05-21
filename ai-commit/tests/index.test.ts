@@ -2,7 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import aiCommit, { getAiCommitSettingsPaths } from "../index";
+import aiCommit, {
+  getAiCommitSettingsPaths,
+  reviewCommitMessage,
+} from "../index";
 
 describe("ai-commit extension", () => {
   it("exports an extension factory", () => {
@@ -30,3 +33,88 @@ describe("getAiCommitSettingsPaths", () => {
     });
   });
 });
+
+describe("reviewCommitMessage", () => {
+  it("commits the generated message when accepted", async () => {
+    const { ctx } = createReviewContext({ choices: ["Commit"] });
+
+    const result = await reviewCommitMessage(ctx as never, "feat: add thing");
+
+    assert.deepEqual(result, { action: "commit", message: "feat: add thing" });
+  });
+
+  it("lets the user edit before committing", async () => {
+    const generated = "feat(ai-commit): generate message";
+    const edited =
+      "fix(ai-commit): allow editing generated message\n\nPreserve an optional body.\n";
+    const { ctx, editorInitialValues, selectPrompts } = createReviewContext({
+      choices: ["Edit", "Commit"],
+      edited,
+    });
+
+    const result = await reviewCommitMessage(ctx as never, generated);
+
+    assert.deepEqual(result, {
+      action: "commit",
+      message:
+        "fix(ai-commit): allow editing generated message\n\nPreserve an optional body.",
+    });
+    assert.deepEqual(editorInitialValues, [generated]);
+    assert.match(
+      selectPrompts.at(-1) ?? "",
+      /fix\(ai-commit\): allow editing generated message/,
+    );
+  });
+
+  it("returns regenerate when requested", async () => {
+    const { ctx } = createReviewContext({ choices: ["Regenerate"] });
+
+    const result = await reviewCommitMessage(ctx as never, "feat: add thing");
+
+    assert.deepEqual(result, { action: "regenerate" });
+  });
+
+  it("cancels when editing is aborted", async () => {
+    const { ctx } = createReviewContext({
+      choices: ["Edit"],
+      edited: undefined,
+    });
+
+    const result = await reviewCommitMessage(ctx as never, "feat: add thing");
+
+    assert.deepEqual(result, { action: "cancel" });
+  });
+});
+
+function createReviewContext({
+  choices,
+  edited,
+}: {
+  choices: Array<string | undefined>;
+  edited?: string;
+}) {
+  const selectPrompts: string[] = [];
+  const editorInitialValues: string[] = [];
+  const notifications: Array<{ message: string; level: string }> = [];
+
+  return {
+    selectPrompts,
+    editorInitialValues,
+    notifications,
+    ctx: {
+      ui: {
+        select: async (prompt: string) => {
+          selectPrompts.push(prompt);
+          return choices.shift();
+        },
+        editor: async (_title: string, initialValue: string) => {
+          editorInitialValues.push(initialValue);
+          return edited;
+        },
+        notify: (message: string, level: string) => {
+          notifications.push({ message, level });
+        },
+      },
+    },
+  };
+}

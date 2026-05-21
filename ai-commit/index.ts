@@ -31,9 +31,15 @@ import {
 
 enum UserChoice {
   Commit = "Commit",
+  Edit = "Edit",
   Regenerate = "Regenerate",
   Cancel = "Cancel",
 }
+
+export type CommitMessageReviewResult =
+  | { action: "commit"; message: string }
+  | { action: "regenerate" }
+  | { action: "cancel" };
 
 async function selectGenerationModel(
   currentModel: Model<Api>,
@@ -255,6 +261,51 @@ async function generateCommitMessage(
   });
 }
 
+export async function reviewCommitMessage(
+  ctx: Pick<ExtensionCommandContext, "ui">,
+  generatedMessage: string,
+): Promise<CommitMessageReviewResult> {
+  let message = generatedMessage;
+
+  while (true) {
+    const choice = await ctx.ui.select(
+      `Use this commit message?\n\n${message}`,
+      [
+        UserChoice.Commit,
+        UserChoice.Edit,
+        UserChoice.Regenerate,
+        UserChoice.Cancel,
+      ],
+    );
+
+    if (!choice || choice === UserChoice.Cancel) {
+      return { action: "cancel" };
+    }
+
+    if (choice === UserChoice.Regenerate) {
+      return { action: "regenerate" };
+    }
+
+    if (choice === UserChoice.Edit) {
+      const edited = await ctx.ui.editor("Edit commit message", message);
+      if (edited === undefined) {
+        return { action: "cancel" };
+      }
+
+      const editedMessage = edited.trim();
+      if (!editedMessage) {
+        ctx.ui.notify("Commit message cannot be empty", "warning");
+        continue;
+      }
+
+      message = editedMessage;
+      continue;
+    }
+
+    return { action: "commit", message };
+  }
+}
+
 async function aiCommitHandler(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
   await ctx.waitForIdle();
 
@@ -313,25 +364,21 @@ async function aiCommitHandler(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
       return;
     }
 
-    const choice = await ctx.ui.select(
-      `Use this commit message?\n\n${message}`,
-      [UserChoice.Commit, UserChoice.Regenerate, UserChoice.Cancel],
-    );
-
-    if (!choice || choice === UserChoice.Cancel) {
+    const review = await reviewCommitMessage(ctx, message);
+    if (review.action === "cancel") {
       ctx.ui.notify("Cancelled", "info");
       return;
     }
 
-    if (choice === UserChoice.Regenerate) {
+    if (review.action === "regenerate") {
       continue;
     }
 
-    const commit = await pi.exec("git", ["commit", "-m", message], {
+    const commit = await pi.exec("git", ["commit", "-m", review.message], {
       cwd: gitRoot,
     });
     if (commit.code === 0) {
-      ctx.ui.notify(`Committed: ${message}`, "info");
+      ctx.ui.notify(`Committed: ${review.message}`, "info");
       return;
     }
 

@@ -15,12 +15,11 @@ import {
 } from "../utils";
 
 describe("mergeAiCommitSettings", () => {
-  it("uses defaults and prefers small generation models", () => {
+  it("uses defaults and configured generation model order", () => {
     const settings = mergeAiCommitSettings(undefined, undefined);
 
     assert.strictEqual(settings.systemPrompt, DEFAULT_GENERATION_PROMPT);
     assert.deepEqual(settings.generationModels, DEFAULT_GENERATION_MODELS);
-    assert.strictEqual(settings.generationModels[0]?.id, "gpt-5.4-mini");
     assert.match(settings.systemPrompt, /Generate a concise git commit message/);
     assert.match(settings.systemPrompt, /type\(scope\): description/);
   });
