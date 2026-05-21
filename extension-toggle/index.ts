@@ -5,25 +5,34 @@ import {
   type ExtensionAPI,
   type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import {
+  Key,
+  matchesKey,
+  truncateToWidth,
+  type Component,
+} from "@earendil-works/pi-tui";
 import {
   assertToggleableScope,
   buildSourceOptions,
+  filterExtensionOptions,
   isSourceEnabled,
   toggleAllPackageResources,
   toggleTopLevelResourcePaths,
   type ExtensionOption,
+  type FilteredExtensionOption,
 } from "./utils";
 
 const COMMAND_NAME = "extension-toggle";
 
-interface ExtensionToggleSelection {
+export interface ExtensionToggleSelection {
   option: ExtensionOption;
   enabled: boolean;
 }
 
-class ExtensionMultiSelect implements Component {
-  private selectedIndex = 0;
+export class ExtensionMultiSelect implements Component {
+  private selectedFilteredIndex = 0;
+  private searchMode = false;
+  private searchQuery = "";
   private readonly checkedIndexes = new Set<number>();
   private readonly initialCheckedIndexes = new Set<number>();
   private readonly maxVisible = 12;
@@ -42,80 +51,202 @@ class ExtensionMultiSelect implements Component {
 
   invalidate() {}
 
+  private get filteredOptions(): FilteredExtensionOption[] {
+    return filterExtensionOptions(this.options, this.searchQuery);
+  }
+
+  private clampSelectedIndex(filtered = this.filteredOptions): void {
+    if (filtered.length === 0) {
+      this.selectedFilteredIndex = 0;
+      return;
+    }
+
+    this.selectedFilteredIndex = Math.max(
+      0,
+      Math.min(this.selectedFilteredIndex, filtered.length - 1),
+    );
+  }
+
+  private setSearchQuery(query: string): void {
+    this.searchQuery = query;
+    this.selectedFilteredIndex = 0;
+    this.clampSelectedIndex();
+  }
+
+  private getSelectedRow(): FilteredExtensionOption | undefined {
+    const filtered = this.filteredOptions;
+    this.clampSelectedIndex(filtered);
+    return filtered[this.selectedFilteredIndex];
+  }
+
+  private moveSelection(delta: number): void {
+    const filtered = this.filteredOptions;
+    if (filtered.length === 0) {
+      this.selectedFilteredIndex = 0;
+      return;
+    }
+
+    this.selectedFilteredIndex = Math.max(
+      0,
+      Math.min(filtered.length - 1, this.selectedFilteredIndex + delta),
+    );
+  }
+
+  private toggleSelectedRow(): void {
+    const row = this.getSelectedRow();
+    if (!row) return;
+
+    if (this.checkedIndexes.has(row.originalIndex)) {
+      this.checkedIndexes.delete(row.originalIndex);
+    } else {
+      this.checkedIndexes.add(row.originalIndex);
+    }
+  }
+
+  private submit(): void {
+    this.done(
+      this.options
+        .map((option, index) => ({
+          option,
+          enabled: this.checkedIndexes.has(index),
+          changed:
+            this.checkedIndexes.has(index) !== this.initialCheckedIndexes.has(index),
+        }))
+        .filter((selection) => selection.changed)
+        .map(({ option, enabled }) => ({ option, enabled })),
+    );
+  }
+
+  private isPrintableInput(data: string): boolean {
+    return (
+      data.length === 1 &&
+      data.charCodeAt(0) >= 32 &&
+      data.charCodeAt(0) !== 127
+    );
+  }
+
   render(width: number): string[] {
+    const filtered = this.filteredOptions;
+    this.clampSelectedIndex(filtered);
+    const searchStatus = this.searchMode ? "active" : "inactive";
+    const queryDisplay = this.searchQuery.length > 0 ? this.searchQuery : "(empty)";
+    const controls = this.searchMode
+      ? "type: search · backspace/delete: remove · ctrl+u: clear · esc: close search · enter: apply"
+      : "↑/↓ or j/k: move · / or ctrl+f: search · space: check/uncheck · enter: apply · esc: cancel";
     const lines = [
       "Enable or disable sources",
-      "space: check/uncheck · enter: apply · esc: cancel",
+      `Search (${searchStatus}): ${queryDisplay}`,
       "",
     ];
 
-    const startIndex = Math.max(
-      0,
-      Math.min(
-        this.selectedIndex - Math.floor(this.maxVisible / 2),
-        this.options.length - this.maxVisible,
-      ),
-    );
-    const endIndex = Math.min(startIndex + this.maxVisible, this.options.length);
-
-    for (let i = startIndex; i < endIndex; i++) {
-      const option = this.options[i];
-      const cursor = i === this.selectedIndex ? ">" : " ";
-      const checked = this.checkedIndexes.has(i);
-      const selected = checked ? "[x]" : "[ ]";
-      const status = checked ? "Enabled" : "Disabled";
+    if (filtered.length === 0) {
       lines.push(
-        truncateToWidth(`${cursor} ${selected} ${option.label} · ${status}`, width, "..."),
+        truncateToWidth(`No sources match "${this.searchQuery}"`, width, "..."),
       );
+    } else {
+      const startIndex = Math.max(
+        0,
+        Math.min(
+          this.selectedFilteredIndex - Math.floor(this.maxVisible / 2),
+          filtered.length - this.maxVisible,
+        ),
+      );
+      const endIndex = Math.min(startIndex + this.maxVisible, filtered.length);
+
+      for (let i = startIndex; i < endIndex; i++) {
+        const row = filtered[i];
+        const option = row.option;
+        const cursor = i === this.selectedFilteredIndex ? ">" : " ";
+        const checked = this.checkedIndexes.has(row.originalIndex);
+        const selected = checked ? "[x]" : "[ ]";
+        const status = checked ? "Enabled" : "Disabled";
+        lines.push(
+          truncateToWidth(`${cursor} ${selected} ${option.label} · ${status}`, width, "..."),
+        );
+      }
     }
 
-    if (this.options.length > this.maxVisible) {
+    if (filtered.length > this.maxVisible) {
       lines.push(
-        `(${this.selectedIndex + 1}/${this.options.length}) ${this.checkedIndexes.size} enabled`,
+        `(${this.selectedFilteredIndex + 1}/${filtered.length} shown, ${this.options.length} total) ${this.checkedIndexes.size} enabled`,
+      );
+    } else if (this.searchQuery.trim().length > 0) {
+      lines.push(
+        `${filtered.length}/${this.options.length} shown · ${this.checkedIndexes.size} enabled`,
       );
     } else {
       lines.push(`${this.checkedIndexes.size} enabled`);
     }
 
+    lines.push(controls);
+
     return lines;
   }
 
   handleInput(data: string): void {
-    if (data === "\u001b[A" || data === "k") {
-      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+    if (matchesKey(data, Key.ctrl("c"))) {
+      this.done(null);
       return;
     }
 
-    if (data === "\u001b[B" || data === "j") {
-      this.selectedIndex = Math.min(this.options.length - 1, this.selectedIndex + 1);
+    if (matchesKey(data, Key.enter)) {
+      this.submit();
       return;
     }
 
-    if (data === " ") {
-      if (this.checkedIndexes.has(this.selectedIndex)) {
-        this.checkedIndexes.delete(this.selectedIndex);
-      } else {
-        this.checkedIndexes.add(this.selectedIndex);
+    if (this.searchMode) {
+      if (matchesKey(data, Key.escape)) {
+        this.searchMode = false;
+        return;
+      }
+
+      if (matchesKey(data, Key.ctrl("u"))) {
+        this.setSearchQuery("");
+        return;
+      }
+
+      if (matchesKey(data, Key.backspace) || matchesKey(data, Key.delete)) {
+        this.setSearchQuery(this.searchQuery.slice(0, -1));
+        return;
+      }
+
+      if (matchesKey(data, Key.up)) {
+        this.moveSelection(-1);
+        return;
+      }
+
+      if (matchesKey(data, Key.down)) {
+        this.moveSelection(1);
+        return;
+      }
+
+      if (this.isPrintableInput(data)) {
+        this.setSearchQuery(`${this.searchQuery}${data}`);
       }
       return;
     }
 
-    if (data === "\r" || data === "\n") {
-      this.done(
-        this.options
-          .map((option, index) => ({
-            option,
-            enabled: this.checkedIndexes.has(index),
-            changed:
-              this.checkedIndexes.has(index) !== this.initialCheckedIndexes.has(index),
-          }))
-          .filter((selection) => selection.changed)
-          .map(({ option, enabled }) => ({ option, enabled })),
-      );
+    if (data === "/" || matchesKey(data, Key.ctrl("f"))) {
+      this.searchMode = true;
       return;
     }
 
-    if (data === "\u001b" || data === "\u0003") {
+    if (matchesKey(data, Key.up) || data === "k") {
+      this.moveSelection(-1);
+      return;
+    }
+
+    if (matchesKey(data, Key.down) || data === "j") {
+      this.moveSelection(1);
+      return;
+    }
+
+    if (matchesKey(data, Key.space)) {
+      this.toggleSelectedRow();
+      return;
+    }
+
+    if (matchesKey(data, Key.escape)) {
       this.done(null);
     }
   }

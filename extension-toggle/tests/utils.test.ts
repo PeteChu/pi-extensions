@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import type { ResolvedResource } from "@earendil-works/pi-coding-agent";
 import {
+  buildExtensionOptionSearchText,
   buildSourceOptions,
+  filterExtensionOptions,
   getPackagePattern,
   getTopLevelPattern,
   isExtensionToggleManager,
@@ -331,6 +333,103 @@ describe("extension-toggle utils", () => {
       options.map((option) => option.sourceKey),
       ["extensions/ai-commit/index.ts", "extensions/answer/index.ts"],
     );
+  });
+
+  it("builds searchable text from labels, source keys, resource types, and resource metadata", () => {
+    const option = buildSourceOptions(
+      [],
+      [
+        resource({
+          path: "/packages/workflow/skills/review-changes.md",
+          enabled: true,
+          source: "npm:workflow-tools",
+          scope: "user",
+          origin: "package",
+          baseDir: "/packages/workflow",
+        }),
+      ],
+      [],
+      [],
+    )[0];
+
+    const searchText = buildExtensionOptionSearchText(option);
+    assert.match(searchText, /npm:workflow-tools/);
+    assert.match(searchText, /review-changes\.md/);
+    assert.match(searchText, /skills/);
+    assert.match(searchText, /package/);
+  });
+
+  it("filters options by package source and nested skill names", () => {
+    const options = buildSourceOptions(
+      [
+        resource({
+          path: "/packages/a/extensions/main.ts",
+          enabled: true,
+          source: "npm:alpha-extension",
+          scope: "user",
+          origin: "package",
+          baseDir: "/packages/a",
+        }),
+      ],
+      [
+        resource({
+          path: "/packages/reviewer/skills/code-review.md",
+          enabled: true,
+          source: "npm:reviewer-suite",
+          scope: "user",
+          origin: "package",
+          baseDir: "/packages/reviewer",
+        }),
+      ],
+      [],
+      [],
+    );
+
+    assert.deepEqual(
+      filterExtensionOptions(options, "alpha").map((entry) => entry.option.sourceKey),
+      ["npm:alpha-extension"],
+    );
+    assert.deepEqual(
+      filterExtensionOptions(options, "code review").map((entry) => entry.option.sourceKey),
+      ["npm:reviewer-suite"],
+    );
+  });
+
+  it("filters options by top-level extension and skill directory names", () => {
+    const options = buildSourceOptions(
+      [
+        resource({
+          path: "/home/user/.pi/agent/extensions/ai-commit/index.ts",
+          enabled: true,
+          source: "auto",
+          scope: "user",
+          origin: "top-level",
+          baseDir: "/home/user/.pi/agent",
+        }),
+      ],
+      [
+        resource({
+          path: "/home/user/.pi/agent/skills/release-notes/skill.md",
+          enabled: true,
+          source: "auto",
+          scope: "user",
+          origin: "top-level",
+          baseDir: "/home/user/.pi/agent",
+        }),
+      ],
+      [],
+      [],
+    );
+
+    assert.deepEqual(
+      filterExtensionOptions(options, "ai commit").map((entry) => entry.option.label),
+      ["ai-commit (global extension)"],
+    );
+    assert.deepEqual(
+      filterExtensionOptions(options, "release notes").map((entry) => entry.option.label),
+      ["release-notes (global skill)"],
+    );
+    assert.deepEqual(filterExtensionOptions(options, "does-not-exist"), []);
   });
 
   it("excludes toggle manager from grouped options", () => {

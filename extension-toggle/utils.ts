@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { PackageSource, ResolvedResource } from "@earendil-works/pi-coding-agent";
+import { fuzzyFilter } from "@earendil-works/pi-tui";
 
 export const EXTENSION_TOGGLE_PACKAGE_NAME = "pi-extension-toggle";
 
@@ -21,6 +22,12 @@ export interface ExtensionOption {
   scope: "user" | "project";
   origin: "package" | "top-level";
   resourceType?: ResourceType;
+}
+
+export interface FilteredExtensionOption {
+  option: ExtensionOption;
+  originalIndex: number;
+  searchText: string;
 }
 
 export function isToggleableExtension(resource: ResolvedResource): boolean {
@@ -242,6 +249,74 @@ export function getExtensionSourceLabel(
 
 export function isSourceEnabled(resources: ResolvedResource[]): boolean {
   return resources.some((r) => r.enabled);
+}
+
+function uniqueSearchParts(parts: Array<string | undefined>): string {
+  const seen = new Set<string>();
+  const values: string[] = [];
+
+  for (const part of parts) {
+    const value = part?.trim();
+    if (!value) continue;
+    const normalized = value.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    values.push(value);
+  }
+
+  return values.join(" ");
+}
+
+export function buildExtensionOptionSearchText(option: ExtensionOption): string {
+  const resourceParts = option.resources.flatMap((resource) => [
+    resource.path,
+    path.basename(resource.path),
+    path.dirname(resource.path),
+    resource.metadata.source,
+    resource.metadata.scope,
+    resource.metadata.origin,
+    resource.metadata.baseDir,
+  ]);
+
+  return uniqueSearchParts([
+    option.label,
+    option.sourceKey,
+    option.scope,
+    option.origin,
+    option.resourceType,
+    option.resourceType ? resourceTypeLabel(option.resourceType) : undefined,
+    ...resourceParts,
+  ]);
+}
+
+function normalizeSearchText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[\s\-_./:()]+/g, " ")
+    .trim();
+}
+
+export function filterExtensionOptions(
+  options: ExtensionOption[],
+  query: string,
+): FilteredExtensionOption[] {
+  const indexedOptions = options.map((option, originalIndex) => ({
+    option,
+    originalIndex,
+    searchText: buildExtensionOptionSearchText(option),
+  }));
+  const normalizedQuery = normalizeSearchText(query);
+  if (normalizedQuery.length === 0) {
+    return indexedOptions;
+  }
+
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const directMatches = indexedOptions.filter((entry) => {
+    const normalizedText = normalizeSearchText(entry.searchText);
+    return tokens.every((token) => normalizedText.includes(token));
+  });
+
+  return fuzzyFilter(directMatches, query, (entry) => entry.searchText);
 }
 
 export function buildSourceOptions(
