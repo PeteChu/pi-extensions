@@ -6,14 +6,15 @@
   "description": "Collection of pi extensions by petechu",
   "license": "MIT",
   "keywords": ["pi-package"],
-  "pi": {
-    "extensions": ["./ai-commit", "./answer", "./extension-toggle"]
+  "scripts": {
+    "test": "pnpm -r test"
   },
-  "peerDependencies": {
+  "devDependencies": {
+    "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-tui": "*",
+    "tsx": "^4.22.2",
     "typebox": "*"
   }
 }

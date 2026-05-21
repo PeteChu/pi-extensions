@@ -40,7 +40,6 @@ export interface PreparedStagedFile extends StagedFileMetadata {
 }
 
 export const DEFAULT_GENERATION_MODELS: ModelPreference[] = [
-  { provider: "deepseek", id: "deepseek-v4-flash" },
   { provider: "openai-codex", id: "gpt-5.4-mini" },
   { provider: "github-copilot", id: "gpt-5.4-mini" },
   { provider: "openai-codex", id: "gpt-5.3-codex-spark" },
