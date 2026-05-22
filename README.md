@@ -30,6 +30,14 @@ pi install npm:@petechu/pi-answer-studio
 pi install npm:@petechu/pi-extension-toggle
 ```
 
+## 📊 package-usage — `/package-usage`
+
+> Passively collected usage statistics for installed Pi packages. See which tools and skills earn their place in your workflow.
+
+```bash
+pi install npm:@petechu/pi-package-usage
+```
+
 ---
 
 ## Install all at once

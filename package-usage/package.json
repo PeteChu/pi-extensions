@@ -1,0 +1,22 @@
+{
+  "name": "@petechu/pi-package-usage",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Passively collected usage statistics for installed Pi packages",
+  "homepage": "https://github.com/PeteChu/pi-extensions",
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
+  "scripts": {
+    "test": "node --import tsx --test ./tests/store.test.ts ./tests/utils.test.ts ./tests/tracker.test.ts ./tests/index.test.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

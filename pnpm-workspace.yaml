@@ -2,3 +2,4 @@ packages:
   - 'ai-commit'
   - 'answer'
   - 'extension-toggle'
+  - 'package-usage'
