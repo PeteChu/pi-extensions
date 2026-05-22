@@ -18,18 +18,27 @@ pi install npm:@petechu/pi-answer-studio
 
 ### Keys
 
-| Key                        | Action                      |
-| -------------------------- | --------------------------- |
-| `←` / `→`                  | switch questions            |
-| `Enter`                    | commit answer, move to next |
-| `Ctrl+R`                   | review / submit             |
-| `↑` / `↓`                  | select an option            |
-| `1` – `9`                  | jump to option number       |
-| type while option selected | switch to custom text input |
-| `Shift+Enter`              | newline in custom input     |
-| `Ctrl+T`                   | apply next answer template  |
-| `Ctrl+C`                   | cancel                      |
-| `Esc` (on review)          | back to editing             |
+| Key                        | Action                              |
+| -------------------------- | ----------------------------------- |
+| `←` / `→`                  | switch questions                    |
+| `Enter`                    | commit answer, move to next         |
+| `Ctrl+R`                   | review / submit                     |
+| `↑` / `↓`                  | select an option / move cursor      |
+| `1` – `9`                  | jump to option number / toggle      |
+| type while option selected | switch to custom text input         |
+| `Shift+Enter`              | newline in custom input             |
+| `Ctrl+T`                   | apply next answer template          |
+| `Ctrl+M`                   | toggle single-select / multi-select |
+| `Space` (multi-select)     | toggle option at cursor             |
+| `Ctrl+C`                   | cancel                              |
+| `Esc` (on review)          | back to editing                     |
+
+### Answer modes
+
+Each question defaults to **single-select** (radio buttons). Press **Ctrl+M** to switch the current question to **multi-select** (checkboxes) and vice versa. The mode indicator `[S]` or `[M]` is shown next to the choices label.
+
+- **Single-select**: `↑`/`↓` changes the selection, `Enter` commits
+- **Multi-select**: `↑`/`↓` moves the cursor (`▸`), `Space` or a number key toggles the option at cursor, selected options are joined with `,` in the answer
 
 The compiled submission omits unanswered questions and context lines.
 

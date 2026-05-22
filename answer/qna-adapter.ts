@@ -21,13 +21,15 @@ import {
 } from "./utils";
 
 const DRAFT_ENTRY_TYPE = "answer:draft";
-const DRAFT_VERSION = 2;
+const DRAFT_VERSION = 3;
 
 interface DraftResponse {
   selectedOptionIndex: number;
   customText: string;
   selectionTouched?: boolean;
   committed?: boolean;
+  selectionMode?: "single" | "multiple";
+  selectedOptionIndexes?: number[];
 }
 
 export interface AnswerDraft {
@@ -118,6 +120,8 @@ export function createDraftStore(
           customText: response.customText,
           selectionTouched: response.selectionTouched,
           committed: response.committed,
+          selectionMode: response.selectionMode,
+          selectedOptionIndexes: [...response.selectedOptionIndexes],
         }));
     const payload: AnswerDraft = {
       version: DRAFT_VERSION,

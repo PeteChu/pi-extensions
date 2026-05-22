@@ -304,4 +304,137 @@ describe("shared qna helpers", () => {
       "Deno",
     );
   });
+
+  it("formats multi-select answer as comma-separated labels", () => {
+    const question = {
+      question: "Preferred runtimes?",
+      options: [
+        { label: "Node", description: "Node.js" },
+        { label: "Bun", description: "Bun.js" },
+        { label: "Deno", description: "Deno.js" },
+      ],
+    };
+
+    const answer = formatResponseAnswer(question, {
+      selectedOptionIndex: 1,
+      customText: "",
+      selectionTouched: true,
+      committed: true,
+      selectionMode: 'multiple',
+      selectedOptionIndexes: [0, 2],
+    });
+
+    assert.strictEqual(answer, "Node, Deno");
+  });
+
+  it("formats multi-select with custom text included", () => {
+    const question = {
+      question: "Preferred runtimes?",
+      options: [
+        { label: "Node", description: "Node.js" },
+        { label: "Bun", description: "Bun.js" },
+      ],
+    };
+
+    const answer = formatResponseAnswer(question, {
+      selectedOptionIndex: 2,
+      customText: "Deno",
+      selectionTouched: true,
+      committed: true,
+      selectionMode: 'multiple',
+      selectedOptionIndexes: [0, 2],
+    });
+
+    assert.strictEqual(answer, "Node, Deno");
+  });
+
+  it("returns empty string for multi-select with no selection", () => {
+    const question = {
+      question: "Preferred runtimes?",
+      options: [
+        { label: "Node", description: "Node.js" },
+        { label: "Bun", description: "Bun.js" },
+      ],
+    };
+
+    const answer = formatResponseAnswer(question, {
+      selectedOptionIndex: 0,
+      customText: "",
+      selectionTouched: false,
+      committed: false,
+      selectionMode: 'multiple',
+      selectedOptionIndexes: [],
+    });
+
+    assert.strictEqual(answer, "");
+  });
+
+  it("normalizes response with multi-select fields from draft", () => {
+    const questions = [
+      {
+        question: "Preferred runtimes?",
+        options: [
+          { label: "Node", description: "Node.js" },
+          { label: "Bun", description: "Bun.js" },
+        ],
+      },
+    ];
+
+    const responses = normalizeResponses(
+      questions,
+      [
+        {
+          selectedOptionIndex: 0,
+          customText: "",
+          selectionTouched: true,
+          committed: true,
+          selectionMode: 'multiple' as const,
+          selectedOptionIndexes: [0, 1],
+        },
+      ],
+      undefined,
+      true,
+    );
+
+    assert.strictEqual(responses[0].selectionMode, 'multiple');
+    assert.deepEqual(responses[0].selectedOptionIndexes, [0, 1]);
+    assert.strictEqual(
+      formatResponseAnswer(questions[0], responses[0]),
+      "Node, Bun",
+    );
+  });
+
+  it("backward compat: missing selectionMode defaults to single", () => {
+    const questions = [
+      {
+        question: "Preferred runtime?",
+        options: [
+          { label: "Node", description: "Node.js" },
+          { label: "Bun", description: "Bun.js" },
+        ],
+      },
+    ];
+
+    // Simulate old V2 draft response without selectionMode/selectedOptionIndexes
+    const responses = normalizeResponses(
+      questions,
+      [
+        {
+          selectedOptionIndex: 1,
+          customText: "",
+          selectionTouched: true,
+          committed: true,
+        },
+      ],
+      undefined,
+      true,
+    );
+
+    assert.strictEqual(responses[0].selectionMode, 'single');
+    assert.deepEqual(responses[0].selectedOptionIndexes, [1]);
+    assert.strictEqual(
+      formatResponseAnswer(questions[0], responses[0]),
+      "Bun",
+    );
+  });
 });

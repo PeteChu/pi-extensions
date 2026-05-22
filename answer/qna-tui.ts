@@ -89,6 +89,8 @@ export interface QnAResponse {
   customText: string;
   selectionTouched: boolean;
   committed: boolean;
+  selectionMode: "single" | "multiple";
+  selectedOptionIndexes: number[];
 }
 
 export interface QnAResult {
@@ -109,10 +111,6 @@ export function getQuestionOptions(question: QnAQuestion): QnAOption[] {
   return question.options ?? [];
 }
 
-export function normalizeComparableText(text: string | undefined): string {
-  return (text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
-}
-
 export function formatResponseAnswer(
   question: QnAQuestion,
   response: QnAResponse,
@@ -121,6 +119,22 @@ export function formatResponseAnswer(
   if (options.length === 0) return response.customText;
 
   const otherIndex = options.length;
+
+  // Multi-select mode
+  if (response.selectionMode === "multiple") {
+    const isCustomSelected =
+      response.selectedOptionIndexes.includes(otherIndex);
+    const selectedLabels = response.selectedOptionIndexes
+      .filter((i) => i >= 0 && i < options.length)
+      .map((i) => options[i].label);
+    const parts = [...selectedLabels];
+    if (isCustomSelected && response.customText.trim()) {
+      parts.push(response.customText.trim());
+    }
+    return parts.length > 0 ? parts.join(", ") : "";
+  }
+
+  // Single-select mode (existing behavior)
   if (response.selectedOptionIndex === otherIndex) return response.customText;
   if (!response.selectionTouched) return "";
   return options[response.selectedOptionIndex]?.label ?? "";
@@ -162,14 +176,47 @@ export function normalizeResponseForQuestion(
     ? Math.trunc(explicitIndex)
     : undefined;
 
+  // Resolve selection mode (backward compat: missing = single)
+  const selectionMode: "single" | "multiple" =
+    response?.selectionMode === "multiple" ? "multiple" : "single";
+
+  // Resolve selectedOptionIndexes (backward compat)
+  let selectedOptionIndexes: number[];
+  if (Array.isArray(response?.selectedOptionIndexes)) {
+    selectedOptionIndexes = response.selectedOptionIndexes
+      .filter((i): i is number => typeof i === "number" && Number.isFinite(i))
+      .map((i) => Math.max(0, Math.min(options.length, Math.trunc(i))));
+    // Deduplicate
+    selectedOptionIndexes = [...new Set(selectedOptionIndexes)];
+  } else {
+    // Backward compat: derive from selectedOptionIndex
+    selectedOptionIndexes =
+      hasExplicitIndex && explicitIndex! > 0
+        ? [Math.max(0, Math.min(options.length, Math.trunc(explicitIndex!)))]
+        : [];
+  }
+
   if (options.length === 0) {
     selectedOptionIndex = 0;
+    selectedOptionIndexes = [];
   } else if (selectedOptionIndex === undefined) {
     const fallbackTrimmed = rawFallback.trim();
-    selectedOptionIndex =
-      fallbackTrimmed.length > 0
-        ? findOptionIndexByLabel(options, fallbackTrimmed)
-        : 0;
+    if (selectionMode === "multiple") {
+      // For multi-select, try to match fallback against options
+      const matchedLabelIdx =
+        fallbackTrimmed.length > 0
+          ? findOptionIndexByLabel(options, fallbackTrimmed)
+          : options.length; // default to nothing selected if no fallback
+      selectedOptionIndex =
+        matchedLabelIdx < options.length
+          ? matchedLabelIdx
+          : (selectedOptionIndexes[selectedOptionIndexes.length - 1] ?? 0);
+    } else {
+      selectedOptionIndex =
+        fallbackTrimmed.length > 0
+          ? findOptionIndexByLabel(options, fallbackTrimmed)
+          : 0;
+    }
   }
 
   const normalizedIndex = Math.max(
@@ -188,6 +235,10 @@ export function normalizeResponseForQuestion(
       response?.committed,
       rawFallback,
     );
+    // For multi-select, also consider selectionTouched true if any indices selected
+    if (!selectionTouched && selectionMode === "multiple") {
+      selectionTouched = selectedOptionIndexes.length > 0;
+    }
   }
 
   let committed = response?.committed ?? false;
@@ -198,6 +249,8 @@ export function normalizeResponseForQuestion(
         customText: normalizedCustomText,
         selectionTouched,
         committed: false,
+        selectionMode,
+        selectedOptionIndexes,
       }).trim().length > 0;
   }
 
@@ -206,6 +259,8 @@ export function normalizeResponseForQuestion(
     customText: normalizedCustomText,
     selectionTouched,
     committed,
+    selectionMode,
+    selectedOptionIndexes,
   };
 }
 
@@ -226,7 +281,10 @@ export function normalizeResponses(
 }
 
 export function cloneResponses(responses: QnAResponse[]): QnAResponse[] {
-  return responses.map((response) => ({ ...response }));
+  return responses.map((response) => ({
+    ...response,
+    selectedOptionIndexes: [...response.selectedOptionIndexes],
+  }));
 }
 
 export function deriveAnswersFromResponses(
@@ -305,6 +363,8 @@ export class QnATuiComponent<
   ) => number | null;
   private applyTemplate: (template: string, data: QnATemplateData) => string;
   private questionSummaryLabel: (question: TQuestion, index: number) => string;
+
+  private focusIndex = 0;
 
   private cachedWidth?: number;
   private cachedLines?: string[];
@@ -396,10 +456,13 @@ export class QnATuiComponent<
   }
   private shouldUseEditor(index = this.currentIndex): boolean {
     const options = getQuestionOptions(this.questions[index]);
-    return (
-      options.length === 0 ||
-      this.responses[index].selectedOptionIndex === options.length
-    );
+    const response = this.responses[index];
+    if (options.length === 0) return true;
+    if (response.selectionMode === "multiple") {
+      // In multi-select mode, editor is active when 'Other' is toggled
+      return response.selectedOptionIndexes.includes(options.length);
+    }
+    return response.selectedOptionIndex === options.length;
   }
   private getCurrentAnswerText(): string {
     return formatResponseAnswer(
@@ -446,6 +509,7 @@ export class QnATuiComponent<
     this.saveCurrentResponse();
     this.currentIndex = index;
     this.showingConfirmation = false;
+    this.focusIndex = 0;
     this.loadEditorForCurrentQuestion();
     this.invalidate();
   }
@@ -455,6 +519,82 @@ export class QnATuiComponent<
     const nextIndex = this.currentIndex + delta;
     if (nextIndex < 0 || nextIndex >= this.questions.length) return;
     this.navigateTo(nextIndex);
+    this.tui.requestRender();
+  }
+
+  private toggleMode(): void {
+    const response = this.responses[this.currentIndex];
+    const question = this.getCurrentQuestion();
+    const options = getQuestionOptions(question);
+    if (options.length === 0) return; // no options to toggle between modes
+
+    this.saveCurrentResponse(false);
+
+    if (response.selectionMode === "multiple") {
+      // Switch to single mode: keep only the first selected option (or other)
+      const firstSelected = response.selectedOptionIndexes[0] ?? 0;
+      response.selectionMode = "single";
+      response.selectedOptionIndex = Math.min(firstSelected, options.length);
+      response.selectedOptionIndexes =
+        response.selectedOptionIndex > 0 &&
+        response.selectedOptionIndex < options.length
+          ? [response.selectedOptionIndex]
+          : [];
+      response.selectionTouched = response.selectedOptionIndex > 0;
+    } else {
+      // Switch to multiple mode: begin with current selection
+      response.selectionMode = "multiple";
+      const current = response.selectedOptionIndex;
+      response.selectedOptionIndexes =
+        current > 0 && current < options.length
+          ? [current]
+          : current === options.length
+            ? [options.length]
+            : [];
+      response.selectedOptionIndex =
+        response.selectedOptionIndexes[
+          response.selectedOptionIndexes.length - 1
+        ] ?? 0;
+      response.selectionTouched =
+        response.selectedOptionIndexes.length > 0 ||
+        (current === options.length && response.customText.trim().length > 0);
+    }
+
+    this.focusIndex = 0;
+    this.loadEditorForCurrentQuestion();
+    this.emitResponseChange();
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  private toggleOption(index: number): void {
+    const question = this.getCurrentQuestion();
+    const options = getQuestionOptions(question);
+    if (options.length === 0) return;
+    const normalized = Math.max(0, Math.min(options.length, index));
+    const response = this.responses[this.currentIndex];
+
+    this.saveCurrentResponse(false);
+
+    const alreadySelected = response.selectedOptionIndexes.includes(normalized);
+    if (alreadySelected) {
+      // Remove from selection
+      response.selectedOptionIndexes = response.selectedOptionIndexes.filter(
+        (i) => i !== normalized,
+      );
+    } else {
+      // Add to selection
+      response.selectedOptionIndexes = [
+        ...response.selectedOptionIndexes,
+        normalized,
+      ];
+    }
+
+    response.selectedOptionIndex = normalized;
+    response.selectionTouched = response.selectedOptionIndexes.length > 0;
+    this.loadEditorForCurrentQuestion();
+    this.emitResponseChange();
+    this.invalidate();
     this.tui.requestRender();
   }
 
@@ -538,6 +678,31 @@ export class QnATuiComponent<
     }
 
     if (matchesKey(data, Key.ctrl("c"))) return this.cancel();
+
+    const question = this.getCurrentQuestion();
+    const options = getQuestionOptions(question);
+    const response = this.responses[this.currentIndex];
+    const isMulti = response.selectionMode === "multiple" && options.length > 0;
+    const usingEditor = this.shouldUseEditor();
+
+    // Enter must be checked before Ctrl+M, because on most terminals Enter sends \r
+    // which is the same ASCII code as Ctrl+M. Checking Enter first ensures it commits
+    // and navigates to the next question. Ctrl+M toggles mode only when the terminal
+    // sends a distinct sequence (e.g., Kitty keyboard protocol).
+    if (matchesKey(data, Key.enter) && !matchesKey(data, Key.shift("enter"))) {
+      if (options.length > 0 && !usingEditor && !response.selectionTouched)
+        response.selectionTouched = true;
+      this.saveCurrentResponse();
+      response.committed = true;
+      this.emitResponseChange();
+      if (this.currentIndex < this.questions.length - 1)
+        this.navigateTo(this.currentIndex + 1);
+      else this.showingConfirmation = true;
+      this.invalidate();
+      this.tui.requestRender();
+      return;
+    }
+    if (matchesKey(data, Key.ctrl("m"))) return this.toggleMode();
     if (matchesKey(data, Key.ctrl("t"))) return this.applyNextTemplate();
     if (matchesKey(data, Key.ctrl("r"))) {
       this.saveCurrentResponse();
@@ -563,49 +728,52 @@ export class QnATuiComponent<
       return;
     }
 
-    const question = this.getCurrentQuestion();
-    const options = getQuestionOptions(question);
-    const usingEditor = this.shouldUseEditor();
-    if (options.length > 0) {
+    if (isMulti) {
+      // Multi-select: up/down moves cursor, space toggles, number keys toggle
       const otherIndex = options.length;
-      const isOnOther =
-        this.responses[this.currentIndex].selectedOptionIndex === otherIndex;
+      if (matchesKey(data, Key.up)) {
+        this.focusIndex = Math.max(0, this.focusIndex - 1);
+        this.invalidate();
+        this.tui.requestRender();
+        return;
+      }
+      if (matchesKey(data, Key.down)) {
+        this.focusIndex = Math.min(otherIndex, this.focusIndex + 1);
+        this.invalidate();
+        this.tui.requestRender();
+        return;
+      }
+      // Space toggles the option at cursor
+      if (data === " ") {
+        this.toggleOption(this.focusIndex);
+        return;
+      }
+      // Number keys toggle options
+      if (/^[1-9]$/.test(data)) {
+        const idx = Number(data) - 1;
+        if (idx <= otherIndex) {
+          this.focusIndex = idx;
+          this.toggleOption(idx);
+        }
+        return;
+      }
+    } else if (options.length > 0) {
+      // Single-select: up/down changes selection, number keys select
+      const otherIndex = options.length;
+      const isOnOther = response.selectedOptionIndex === otherIndex;
       const canSwitchFromCustomInput =
         usingEditor && isOnOther && this.editor.getText().length === 0;
       const allowOptionNavigation = !usingEditor || canSwitchFromCustomInput;
       if (allowOptionNavigation && matchesKey(data, Key.up))
-        return this.selectOption(
-          this.responses[this.currentIndex].selectedOptionIndex - 1,
-        );
+        return this.selectOption(response.selectedOptionIndex - 1);
       if (allowOptionNavigation && matchesKey(data, Key.down))
-        return this.selectOption(
-          this.responses[this.currentIndex].selectedOptionIndex + 1,
-        );
+        return this.selectOption(response.selectedOptionIndex + 1);
       const selectedIndex = this.resolveNumericShortcut(
         data,
         otherIndex,
         usingEditor,
       );
       if (selectedIndex !== null) return this.selectOption(selectedIndex);
-    }
-
-    if (matchesKey(data, Key.enter) && !matchesKey(data, Key.shift("enter"))) {
-      const currentResponse = this.responses[this.currentIndex];
-      if (
-        options.length > 0 &&
-        !this.shouldUseEditor() &&
-        !currentResponse.selectionTouched
-      )
-        currentResponse.selectionTouched = true;
-      this.saveCurrentResponse();
-      currentResponse.committed = true;
-      this.emitResponseChange();
-      if (this.currentIndex < this.questions.length - 1)
-        this.navigateTo(this.currentIndex + 1);
-      else this.showingConfirmation = true;
-      this.invalidate();
-      this.tui.requestRender();
-      return;
     }
 
     if (this.shouldUseEditor()) {
@@ -615,7 +783,15 @@ export class QnATuiComponent<
       return;
     }
     if (this.isPrintableInput(data)) {
-      this.selectOption(options.length);
+      if (isMulti) {
+        // In multi-select, printable input toggles 'Other' and starts typing
+        if (!response.selectedOptionIndexes.includes(options.length)) {
+          this.toggleOption(options.length);
+        }
+        this.focusIndex = options.length;
+      } else {
+        this.selectOption(options.length);
+      }
       this.editor.handleInput(data);
       this.saveCurrentResponse();
       this.invalidate();
@@ -679,6 +855,7 @@ export class QnATuiComponent<
     const response = this.responses[this.currentIndex];
     const options = getQuestionOptions(question);
     const usesEditor = this.shouldUseEditor();
+    const isMulti = response.selectionMode === "multiple" && options.length > 0;
     if (question.header)
       lines.push(`${this.accent("◆")} ${this.bold(question.header)}`);
     for (const line of wrapTextWithAnsi(
@@ -697,33 +874,65 @@ export class QnATuiComponent<
     }
     if (options.length > 0) {
       lines.push("");
-      lines.push(this.dim("Choices"));
+      const modeIndicator = isMulti ? this.warning("[M]") : this.dim("[S]");
+      lines.push(`${this.dim("Choices")} ${modeIndicator}`);
       for (let i = 0; i <= options.length; i++) {
         const isOther = i === options.length;
-        const selected = response.selectedOptionIndex === i;
         const optionLabel = isOther
           ? "Other / custom answer"
           : options[i].label;
         const description = isOther
           ? "Type your own answer"
           : options[i].description;
-        const marker = selected ? this.accent("●") : this.dim("○");
-        const number = this.dim(`${i + 1}.`);
-        let optionText = optionLabel;
-        if (selected && response.selectionTouched) {
-          optionText = this.success(optionLabel);
-        } else if (selected) {
-          optionText = this.accent(optionLabel);
-        }
-        lines.push(
-          truncateToWidth(`${marker} ${number} ${optionText}`, contentWidth),
-        );
-        if (selected && description?.trim()) {
-          for (const line of wrapTextWithAnsi(
-            this.muted(description),
-            Math.max(10, contentWidth - 5),
-          ))
-            lines.push(`     ${line}`);
+
+        if (isMulti) {
+          // Multi-select: checkbox + cursor highlight
+          const checked = response.selectedOptionIndexes.includes(i);
+          const isFocused = i === this.focusIndex;
+          const marker = checked ? this.success("☑") : this.dim("☐");
+          const cursor = isFocused ? this.accent("▸") : " ";
+          const number = this.dim(`${i + 1}.`);
+          let optionText = optionLabel;
+          if (checked) {
+            optionText = this.success(optionLabel);
+          }
+          if (isFocused) {
+            optionText = this.accent(optionText);
+          }
+          lines.push(
+            truncateToWidth(
+              `${cursor}${marker} ${number} ${optionText}`,
+              contentWidth,
+            ),
+          );
+          if (checked && description?.trim()) {
+            for (const line of wrapTextWithAnsi(
+              this.muted(description),
+              Math.max(10, contentWidth - 5),
+            ))
+              lines.push(`     ${line}`);
+          }
+        } else {
+          // Single-select: radio buttons (existing)
+          const selected = response.selectedOptionIndex === i;
+          const marker = selected ? this.accent("●") : this.dim("○");
+          const number = this.dim(`${i + 1}.`);
+          let optionText = optionLabel;
+          if (selected && response.selectionTouched) {
+            optionText = this.success(optionLabel);
+          } else if (selected) {
+            optionText = this.accent(optionLabel);
+          }
+          lines.push(
+            truncateToWidth(`${marker} ${number} ${optionText}`, contentWidth),
+          );
+          if (selected && description?.trim()) {
+            for (const line of wrapTextWithAnsi(
+              this.muted(description),
+              Math.max(10, contentWidth - 5),
+            ))
+              lines.push(`     ${line}`);
+          }
         }
       }
     }
@@ -734,6 +943,16 @@ export class QnATuiComponent<
       const editorLines = this.editor.render(editorWidth);
       for (let i = 1; i < editorLines.length - 1; i++)
         lines.push(`  ${editorLines[i]}`);
+    } else if (isMulti) {
+      // In multi-select without editor, show summary of selected options
+      const selectedLabels = response.selectedOptionIndexes
+        .filter((i) => i >= 0 && i < options.length)
+        .map((i) => options[i].label);
+      if (selectedLabels.length > 0) {
+        lines.push(`  ${selectedLabels.join(", ")}`);
+      } else {
+        lines.push(`  ${this.dim("select options with space or number keys")}`);
+      }
     } else {
       const selectedLabel = response.selectionTouched
         ? (options[response.selectedOptionIndex]?.label ?? "")
@@ -827,6 +1046,17 @@ export class QnATuiComponent<
           formatHint("Ctrl+R", "review"),
           ...(this.templates.length > 0
             ? [formatHint("Ctrl+T", "template")]
+            : []),
+          ...(getQuestionOptions(this.getCurrentQuestion()).length > 0
+            ? [
+                formatHint(
+                  "Ctrl+M",
+                  this.responses[this.currentIndex]?.selectionMode ===
+                    "multiple"
+                    ? "single"
+                    : "multiple",
+                ),
+              ]
             : []),
           formatHint("Ctrl+C", "cancel"),
         ];
