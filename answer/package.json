@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Redesigned interactive Q&A extraction extension for pi",
+  "homepage": "https://github.com/PeteChu/pi-extensions",
   "license": "MIT",
   "keywords": [
     "pi-package"

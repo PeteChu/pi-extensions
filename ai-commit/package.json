@@ -3,6 +3,7 @@
   "version": "0.1.1",
   "type": "module",
   "description": "Generate Conventional Commit messages from staged changes for pi",
+  "homepage": "https://github.com/PeteChu/pi-extensions",
   "license": "MIT",
   "keywords": [
     "pi-package"
