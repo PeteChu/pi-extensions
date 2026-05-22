@@ -33,6 +33,28 @@ pi install npm:@petechu/pi-answer-studio
 
 The compiled submission omits unanswered questions and context lines.
 
+## Design & workflow
+
+The extension has three layers: **extraction**, **answering**, and **submission**.
+
+### Extraction
+
+When `/answer` runs, the extension walks the current session branch from newest to oldest and uses the latest completed assistant text message as the source. It then selects an extraction model from the configured preferences, falling back to the current chat model if none of the preferred models are available with credentials.
+
+The assistant message is sent to the extraction model with a structured `extract_questions` tool when supported. If that tool path fails, the extension retries with the plain JSON system prompt. Extracted questions are normalized before display: ids are stabilized, empty questions are dropped, optional headers/context are trimmed, and choices are kept only when they have usable labels.
+
+### Answering
+
+Questions are shown in a custom terminal UI called **Answer Studio**. The UI keeps the extracted order, shows optional context and choices, and always offers an "Other / custom answer" path for choice-based questions. You can move between questions, select numbered options, type free-form responses, cycle configured templates, and enter a review screen before submitting.
+
+Answer templates are applied locally in the TUI using `{{question}}`, `{{context}}`, `{{answer}}`, `{{index}}`, and `{{total}}` placeholders. They only change the current draft text; they do not re-run extraction or call another model.
+
+### Drafts and submission
+
+Drafts are stored as custom session entries tied to the assistant message id and the normalized question list. While enabled, answer changes are autosaved after the configured debounce interval, restored only when the same questions are extracted again, and cleared after a successful submission.
+
+When you submit from the review screen, the extension sends one new chat message that starts with `I answered your questions in the following way:` followed by the compiled Q/A text, then triggers the next assistant turn. Cancelling keeps or flushes the current draft depending on where you exit; submitting clears it.
+
 ## Configuration
 
 The extension reads `answer` settings from Pi's global agent settings and project `.pi/settings.json` (project overrides global):

@@ -437,9 +437,9 @@ describe("package-usage utils", () => {
       const map = buildRuntimeNameMap({
         tools: [
           {
-            name: "plannotator_recommend",
-            path: "/packages/plannotator/pi-tools/recommend.ts",
-            sourceInfo: { origin: "package", source: "npm:plannotator" },
+            name: "ai-commit_recommend",
+            path: "/packages/ai-commit/pi-tools/recommend.ts",
+            sourceInfo: { origin: "package", source: "npm:ai-commit" },
           },
         ],
         commands: [],
@@ -447,8 +447,8 @@ describe("package-usage utils", () => {
 
       assert.equal(map.size, 1);
       assert.equal(
-        map.get("/packages/plannotator/pi-tools/recommend.ts"),
-        "plannotator_recommend",
+        map.get("/packages/ai-commit/pi-tools/recommend.ts"),
+        "ai-commit_recommend",
       );
     });
 
@@ -531,11 +531,11 @@ describe("package-usage utils", () => {
   describe("buildReportDataset with runtime name map", () => {
     it("uses runtime names from map for stats matching", () => {
       const packages = new Map();
-      packages.set("npm:plannotator", {
+      packages.set("npm:ai-commit", {
         extensions: [
           resource({
-            path: "/packages/plannotator/pi-tools/recommend.ts",
-            source: "npm:plannotator",
+            path: "/packages/ai-commit/pi-tools/recommend.ts",
+            source: "npm:ai-commit",
             origin: "package",
           }),
         ],
@@ -543,17 +543,14 @@ describe("package-usage utils", () => {
       });
 
       const runtimeNameMap = new Map([
-        [
-          "/packages/plannotator/pi-tools/recommend.ts",
-          "plannotator_recommend",
-        ],
+        ["/packages/ai-commit/pi-tools/recommend.ts", "ai-commit_recommend"],
       ]);
 
       const stored: UsageStatsRecord[] = [
         {
-          packageSource: "npm:plannotator",
+          packageSource: "npm:ai-commit",
           resourceType: "tool",
-          resourceName: "plannotator_recommend",
+          resourceName: "ai-commit_recommend",
           count: 5,
           firstUsed: "2025-01-01T00:00:00.000Z",
           lastUsed: "2025-06-01T00:00:00.000Z",
@@ -563,7 +560,7 @@ describe("package-usage utils", () => {
       const dataset = buildReportDataset(packages, stored, 7, runtimeNameMap);
 
       assert.equal(dataset.resources.length, 1);
-      assert.equal(dataset.resources[0].resourceName, "plannotator_recommend");
+      assert.equal(dataset.resources[0].resourceName, "ai-commit_recommend");
       assert.equal(dataset.resources[0].count, 5);
     });
 
