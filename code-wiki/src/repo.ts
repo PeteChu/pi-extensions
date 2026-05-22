@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 
 /**
@@ -18,6 +18,19 @@ export function getCurrentCommit(): string | null {
 }
 
 /**
+ * List files changed between a previous commit and HEAD.
+ * Returns an empty list when the repo has no previous commit or git diff fails.
+ */
+export function getChangedFilesSince(previousCommit?: string): string[] {
+  if (!previousCommit) {
+    return [];
+  }
+
+  const output = runGit(["diff", "--name-only", previousCommit, "HEAD"]);
+  return output ? output.split("\n").filter(Boolean).sort() : [];
+}
+
+/**
  * Validate that a resolved path is inside the repository root.
  */
 export function isPathInsideRepo(
@@ -30,12 +43,16 @@ export function isPathInsideRepo(
 }
 
 function gitRevParse(argument: string): string | null {
+  return runGit(["rev-parse", argument]);
+}
+
+function runGit(args: string[]): string | null {
   try {
-    const value = execSync(`git rev-parse ${argument}`, {
+    const output = execFileSync("git", args, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
-    return value || null;
+    return output || null;
   } catch {
     return null;
   }

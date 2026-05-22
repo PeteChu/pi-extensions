@@ -1,3 +1,5 @@
+import { WIKI_FORMATS } from "./wiki-layout";
+
 export interface ParsedArgs {
   subcommand: string;
   options: Record<string, string | boolean | undefined>;
@@ -7,20 +9,45 @@ export function parseArgs(raw: string): ParsedArgs {
   const tokens = tokenize(raw);
   let subcommand = "help";
   const options: Record<string, string | boolean | undefined> = {};
+  const positional: string[] = [];
 
   for (const token of tokens) {
     if (isSubcommand(token)) {
-      subcommand = token;
+      subcommand = token.toLowerCase();
     } else if (isFlag(token)) {
       const { key, value } = parseFlag(token);
       options[key] = value;
+    } else if (subcommand === "query") {
+      positional.push(token);
     }
+  }
+
+  if (
+    subcommand === "query" &&
+    typeof options.question !== "string" &&
+    positional.length > 0
+  ) {
+    options.question = positional.join(" ");
+  }
+
+  if (
+    options.format &&
+    !WIKI_FORMATS.includes(options.format as (typeof WIKI_FORMATS)[number])
+  ) {
+    options.format = "standard";
   }
 
   return { subcommand, options };
 }
 
-const SUBCOMMANDS = new Set(["init", "update", "doctor", "help"]);
+const SUBCOMMANDS = new Set([
+  "init",
+  "update",
+  "query",
+  "doctor",
+  "open",
+  "help",
+]);
 
 function isSubcommand(token: string): boolean {
   return SUBCOMMANDS.has(token.toLowerCase());
@@ -41,11 +68,12 @@ function parseFlag(token: string): { key: string; value: string | boolean } {
   const key = rest.slice(0, eqIdx);
   let value = rest.slice(eqIdx + 1);
 
-  // Strip surrounding quotes if present
+  const firstChar = value[0];
+  const lastChar = value[value.length - 1];
   if (
     value.length >= 2 &&
-    ((value[0] === '"' && value[value.length - 1] === '"') ||
-      (value[0] === "'" && value[value.length - 1] === "'"))
+    (firstChar === '"' || firstChar === "'") &&
+    firstChar === lastChar
   ) {
     value = value.slice(1, -1);
   }
@@ -59,9 +87,10 @@ function tokenize(raw: string): string[] {
   let quote: "'" | '"' | null = null;
 
   const pushCurrent = () => {
-    if (current.length === 0) return;
-    tokens.push(current);
-    current = "";
+    if (current) {
+      tokens.push(current);
+      current = "";
+    }
   };
 
   for (const ch of raw) {
