@@ -98,7 +98,7 @@ function walkDir(
  * Check if a path matches any glob pattern.
  * Supports simple * and ** globs compatible with fnmatch-style patterns.
  */
-function matchesAny(filepath: string, patterns: string[]): boolean {
+export function matchesAny(filepath: string, patterns: string[]): boolean {
   return patterns.some((pattern) => globMatch(filepath, pattern));
 }
 

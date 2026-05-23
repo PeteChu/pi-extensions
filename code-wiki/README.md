@@ -53,7 +53,7 @@ Both forms are supported:
 | ------------------------------- | --------------------------------------------- | ---------------------------- |
 | `--output=<path>`               | Wiki output directory (relative to repo root) | `docs/code-wiki`             |
 | `--include=<glob,...>`          | File patterns to include                      | `*.py,*.js,*.ts,...`         |
-| `--exclude=<glob,...>`          | File patterns to exclude                      | tests, deps, build artifacts |
+| `--exclude=<glob,...>`          | File patterns to exclude (strictly enforced)  | tests, deps, build artifacts |
 | `--language=<lang>`             | Output language                               | `english`                    |
 | `--format=<standard\|obsidian>` | Output Markdown format                        | `standard`                   |
 | `--max-size=<bytes>`            | Maximum file size in bytes                    | `100000`                     |
@@ -167,6 +167,19 @@ Use code_wiki with action="query" and question="..." to answer and file useful r
 Use code_wiki with action="doctor" to check the wiki status
 Pass format="obsidian" to initialize or maintain an Obsidian-ready vault
 ```
+
+## Strict Exclude Enforcement
+
+During any code-wiki operation (`init`, `update`, `query`), the extension intercepts built-in `read` tool calls and blocks reads matching the configured exclude patterns. This ensures excluded files cannot be accidentally read even if the agent drifts from the prompt guidance.
+
+**Behavior:**
+
+- **Blocked:** Any file matching an `--exclude` pattern is blocked with an error: `Blocked by code-wiki exclude pattern: <path>`.
+- **Allowed:** Wiki artifact files inside the output directory are still readable during `update` and `query` operations (e.g., `index.md`, `log.md`, chapter pages, schema, metadata).
+- **Normal reads unaffected:** When no code-wiki operation is active, the `read` tool works normally without any restrictions.
+- **Defaults applied:** If no `--exclude` is specified, the built-in defaults are used (test directories, build artifacts, `node_modules`, `.git`/`.github`, wiki output, etc.).
+
+The enforcement is a safety net, not a replacement for prompt guidance. The agent is still strongly encouraged to follow the file map and exclude instructions in the prompt.
 
 ## Troubleshooting
 

@@ -3,17 +3,22 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+  getAgentDir,
+  isToolCallEventType,
+} from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import * as path from "node:path";
 import { Type } from "typebox";
+import { matchesAny } from "./src/crawler";
 import { parseArgs } from "./src/args";
 import { readMetadata } from "./src/metadata";
 import {
   buildInitPrompt,
   buildQueryPrompt,
   buildUpdatePrompt,
+  DEFAULT_EXCLUDE,
 } from "./src/prompt";
 import { getRepoRoot, isPathInsideRepo } from "./src/repo";
 import {
@@ -35,6 +40,51 @@ const DEFAULT_OUTPUT = "docs/code-wiki";
 const WIKI_ACTIONS = ["init", "update", "query", "doctor"] as const;
 type WikiAction = (typeof WIKI_ACTIONS)[number];
 type WikiOptions = Record<string, string | boolean | undefined>;
+
+// ── Read-guard state (active during code-wiki operations) ─────────────────
+
+interface ReadGuardState {
+  /** Absolute path to the repository root */
+  repoRoot: string;
+  /** Absolute path to the wiki output directory */
+  wikiDir: string;
+  /** Current code-wiki action */
+  action: WikiAction;
+  /** Parsed exclude patterns (repository-relative globs) */
+  excludePatterns: string[];
+}
+
+/**
+ * Active read-guard state, or undefined when no code-wiki operation is running.
+ * Use `setReadGuard` to activate and `clearReadGuard` to deactivate.
+ */
+let readGuardState: ReadGuardState | undefined;
+
+function setReadGuard(state: ReadGuardState): void {
+  readGuardState = state;
+}
+
+function clearReadGuard(): void {
+  readGuardState = undefined;
+}
+
+/**
+ * Parse comma-separated exclude patterns from wiki options.
+ * Falls back to the same DEFAULT_EXCLUDE as the prompt builder when not explicitly set.
+ */
+function parseExcludePatterns(options: WikiOptions): string[] {
+  const raw = options.exclude;
+  if (typeof raw === "string" && raw) {
+    return raw
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+  }
+  // Use the same default exclude list as the prompt builder
+  return DEFAULT_EXCLUDE.split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
 
 // ── Settings helpers ──────────────────────────────────────────────────────
 
@@ -130,6 +180,13 @@ function ensureObsidianVaultConfig(wikiDir: string): void {
   fs.mkdirSync(obsidianConfigDir, { recursive: true });
   if (!fs.existsSync(appConfigPath)) {
     fs.writeFileSync(appConfigPath, `${JSON.stringify({}, null, 2)}\n`);
+  }
+
+  // Ignore .obsidian/ — its contents are device-specific workspace settings
+  // (open files, window layout, plugin state) that should not be committed.
+  const gitignorePath = path.join(wikiDir, ".gitignore");
+  if (!fs.existsSync(gitignorePath)) {
+    fs.writeFileSync(gitignorePath, ".obsidian/\n");
   }
 }
 
@@ -264,6 +321,12 @@ async function handleWikiAction(
       options,
     });
 
+    setReadGuard({
+      repoRoot,
+      wikiDir,
+      action,
+      excludePatterns: parseExcludePatterns(options),
+    });
     pi.sendUserMessage(prompt);
     if (format === "obsidian") {
       ctx.ui.notify(formatObsidianOpenMessage(wikiDir), "info");
@@ -287,6 +350,12 @@ async function handleWikiAction(
       previousCommit: existingMeta?.gitCommit ?? undefined,
     });
 
+    setReadGuard({
+      repoRoot,
+      wikiDir,
+      action,
+      excludePatterns: parseExcludePatterns(mergedOptions),
+    });
     pi.sendUserMessage(prompt);
     return;
   }
@@ -301,6 +370,12 @@ async function handleWikiAction(
     question,
   });
 
+  setReadGuard({
+    repoRoot,
+    wikiDir,
+    action,
+    excludePatterns: parseExcludePatterns(mergedOptions),
+  });
   pi.sendUserMessage(prompt);
 }
 
@@ -442,6 +517,50 @@ export default function (pi: ExtensionAPI) {
 
       await handleWikiAction(action, parsed.options, pi, ctx);
     },
+  });
+
+  // ── Clear read-guard state when the agent finishes or session ends ──
+  pi.on("agent_end", async () => {
+    clearReadGuard();
+  });
+
+  pi.on("session_shutdown", async () => {
+    clearReadGuard();
+  });
+
+  // ── Enforce exclude patterns on built-in `read` tool ──
+  pi.on("tool_call", async (event, ctx) => {
+    if (!isToolCallEventType("read", event)) return;
+    if (!readGuardState) return;
+
+    const { repoRoot, wikiDir, action, excludePatterns } = readGuardState;
+    const requestedPath = event.input.path;
+
+    // Resolve to an absolute path (relative paths are relative to cwd)
+    const resolved = path.resolve(ctx.cwd, requestedPath);
+
+    // Compute repo-relative path for matching
+    const relPath = path.relative(repoRoot, resolved);
+
+    // If the resolved path is outside the repo root, let the built-in read
+    // handle it normally (it will fail) rather than injecting our own error.
+    if (relPath.startsWith("..") || path.isAbsolute(relPath)) return;
+
+    // Allow wiki artifact reads for update/query
+    if (action === "update" || action === "query") {
+      const wikiRel = path.relative(repoRoot, wikiDir);
+      if (relPath === wikiRel || relPath.startsWith(wikiRel + path.sep)) {
+        return; // allowed — wiki artifact
+      }
+    }
+
+    // Check exclude patterns
+    if (matchesAny(relPath, excludePatterns)) {
+      return {
+        block: true,
+        reason: `Blocked by code-wiki exclude pattern: ${relPath}`,
+      };
+    }
   });
 
   // ── Register code_wiki tool ──

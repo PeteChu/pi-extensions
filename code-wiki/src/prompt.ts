@@ -73,7 +73,7 @@ const DEFAULT_INCLUDE = [
   "*.yml",
 ].join(",");
 
-const DEFAULT_EXCLUDE = [
+export const DEFAULT_EXCLUDE = [
   "assets/*",
   "data/*",
   "images/*",
@@ -634,9 +634,9 @@ function commonRules(ctx: PromptContext): string {
   return `### Important Rules
 
 - **Read actual files** — do not guess or hallucinate code behavior. Use the read tool with file indices or paths.
+- **Excluded patterns are strictly enforced.** The extension blocks \`read\` tool calls matching any exclude pattern. If a read is blocked, the file is excluded — do not try to bypass this.
 - **Never include the wiki output directory (\`${ctx.wikiRel}/\`) as source analysis input.** It must not feed back into source discovery.
 - **It is OK to read and edit files inside \`${ctx.wikiRel}/\` only as wiki artifacts.**
-- **Do not read or analyze \`.git/\`, \`node_modules/\`, or other excluded directories.**
 - **Keep generated file paths relative to the wiki directory in metadata.**
 - **Do not include \`${WIKI_METADATA_FILE}\` itself in \`generatedFiles\`.**`;
 }
