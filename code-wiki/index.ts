@@ -4,7 +4,6 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import * as path from "node:path";
@@ -33,7 +32,7 @@ import {
 } from "./src/wiki-layout";
 
 const DEFAULT_OUTPUT = "docs/code-wiki";
-const WIKI_ACTIONS = ["init", "update", "query", "doctor", "open"] as const;
+const WIKI_ACTIONS = ["init", "update", "query", "doctor"] as const;
 type WikiAction = (typeof WIKI_ACTIONS)[number];
 type WikiOptions = Record<string, string | boolean | undefined>;
 
@@ -161,22 +160,6 @@ function formatObsidianOpenMessage(wikiDir: string): string {
   ].join("\n");
 }
 
-function openObsidianVault(wikiDir: string): void {
-  const { uri } = getObsidianOpenInfo(wikiDir);
-
-  if (process.platform === "darwin") {
-    execFileSync("open", [uri], { stdio: "ignore" });
-    return;
-  }
-
-  if (process.platform === "win32") {
-    execFileSync("cmd", ["/c", "start", "", uri], { stdio: "ignore" });
-    return;
-  }
-
-  execFileSync("xdg-open", [uri], { stdio: "ignore" });
-}
-
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -213,11 +196,6 @@ async function handleWikiAction(
 
   if (action === "doctor") {
     runDoctorCheck(ctx, repoRoot, wikiDir, options);
-    return;
-  }
-
-  if (action === "open") {
-    runOpenObsidian(ctx, wikiDir, output);
     return;
   }
 
@@ -331,33 +309,6 @@ function getQuestion(options: WikiOptions): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function runOpenObsidian(
-  ctx: ExtensionContext,
-  wikiDir: string,
-  output: string,
-): void {
-  if (!fs.existsSync(wikiDir)) {
-    ctx.ui.notify(
-      `Wiki directory "${output}" does not exist. Run /code-wiki init first.`,
-      "error",
-    );
-    return;
-  }
-
-  ensureObsidianVaultConfig(wikiDir);
-
-  try {
-    openObsidianVault(wikiDir);
-    ctx.ui.notify(`Opening Obsidian vault at ${output} ...`, "info");
-  } catch (error) {
-    const err = error as Error;
-    ctx.ui.notify(
-      `Failed to open Obsidian automatically: ${err.message}\n${formatObsidianOpenMessage(wikiDir)}`,
-      "error",
-    );
-  }
-}
-
 function runDoctorCheck(
   ctx: ExtensionContext,
   repoRoot: string,
@@ -390,8 +341,6 @@ function runDoctorCheck(
 
   const logPath = path.join(wikiDir, WIKI_LOG_FILE);
   const metaPath = path.join(wikiDir, WIKI_METADATA_FILE);
-  let shouldShowObsidianOpen = requestedFormat === "obsidian";
-
   for (const fileName of [WIKI_INDEX_FILE, WIKI_SCHEMA_FILE, WIKI_LOG_FILE]) {
     const marker = fs.existsSync(path.join(wikiDir, fileName)) ? "✓" : "-";
     checks.push(`${marker} ${fileName}`);
@@ -401,8 +350,6 @@ function runDoctorCheck(
     const meta = readMetadata(metaPath);
     const storedFormat =
       getWikiFormatOption(meta?.options?.format) ?? "standard";
-    shouldShowObsidianOpen ||= storedFormat === "obsidian";
-
     checks.push(`✓ ${WIKI_METADATA_FILE}`);
     checks.push(`  generated files: ${meta?.generatedFiles?.length ?? 0}`);
     checks.push(`  format: ${storedFormat}`);
@@ -425,13 +372,6 @@ function runDoctorCheck(
   if (recentLogHeadings.length > 0) {
     checks.push("Recent log entries:");
     checks.push(...recentLogHeadings.map((heading) => `  ${heading}`));
-  }
-
-  if (shouldShowObsidianOpen) {
-    const { uri, command } = getObsidianOpenInfo(wikiDir);
-    checks.push("Obsidian open:");
-    checks.push(`  URI: ${uri}`);
-    checks.push(`  command: ${command}`);
   }
 
   ctx.ui.notify(checks.join("\n"), "info");
@@ -478,22 +418,19 @@ export default function (pi: ExtensionAPI) {
 
       if (!isWikiAction(action)) {
         ctx.ui.notify(
-          "Usage: /code-wiki <init|update|query|doctor|open> [options]\n" +
+          "Usage: /code-wiki <init|update|query|doctor> [options]\n" +
             "  init     - Generate a new persistent codebase wiki\n" +
             "  update   - Incrementally maintain an existing wiki\n" +
             "  query    - Answer a question and file substantial results\n" +
             "  doctor   - Check setup\n" +
-            "  open     - Open the wiki directory in Obsidian\n" +
             "\nOptions:\n" +
             "  --output=<path>        Wiki directory (default: docs/code-wiki)\n" +
             "  --include=<glob,...>   File patterns to include\n" +
             "  --exclude=<glob,...>   File patterns to exclude\n" +
             "  --language=<lang>      Output language (default: english)\n" +
             "  --format=<standard|obsidian> Output Markdown format (default: standard)\n" +
-            "  --max-abstractions=<n> Max abstractions (default: 10)\n" +
             "  --max-size=<bytes>     Max file size in bytes (default: 100000)\n" +
             "  --question=<text>      Question for query action\n" +
-            "  --no-cache             Tell the agent not to cache LLM responses\n" +
             "  --force                Overwrite existing wiki (init only)\n" +
             "\nExamples:\n" +
             '  /code-wiki query --question="How does model selection work?"\n' +
@@ -512,7 +449,7 @@ export default function (pi: ExtensionAPI) {
     name: "code_wiki",
     label: "Code Wiki",
     description:
-      "Generate, incrementally update, query, open, or inspect a persistent codebase wiki. " +
+      "Generate, incrementally update, query, or inspect a persistent codebase wiki. " +
       "Use this when the user asks to document, explain, maintain, or query codebase knowledge.",
     promptSnippet:
       "Generate, update, or query a codebase wiki in docs/code-wiki/",
@@ -524,16 +461,9 @@ export default function (pi: ExtensionAPI) {
       "Use code_wiki with action='query' when the user asks a codebase question that should " +
         "be answered from the wiki/source and potentially filed back into the wiki.",
       "Use code_wiki with action='doctor' when the user asks to check the wiki setup.",
-      "Use code_wiki with action='open' when the user asks to open the wiki in Obsidian.",
     ],
     parameters: Type.Object({
-      action: StringEnum([
-        "init",
-        "update",
-        "query",
-        "doctor",
-        "open",
-      ] as const),
+      action: StringEnum(["init", "update", "query", "doctor"] as const),
       output: Type.Optional(
         Type.String({
           description: "Wiki directory path (default: docs/code-wiki)",
@@ -564,19 +494,10 @@ export default function (pi: ExtensionAPI) {
           description: "Question to answer when action='query'",
         }),
       ),
-      max_abstractions: Type.Optional(
-        Type.Number({
-          description:
-            "Maximum number of abstractions to identify (default: 10)",
-        }),
-      ),
       max_size: Type.Optional(
         Type.Number({
           description: "Maximum file size in bytes (default: 100000)",
         }),
-      ),
-      no_cache: Type.Optional(
-        Type.Boolean({ description: "Disable LLM response caching" }),
       ),
       force: Type.Optional(
         Type.Boolean({ description: "Force overwrite existing wiki on init" }),
@@ -590,11 +511,8 @@ export default function (pi: ExtensionAPI) {
       if (params.include) options.include = params.include;
       if (params.exclude) options.exclude = params.exclude;
       if (params.question) options.question = params.question;
-      if (params.max_abstractions != null)
-        options["max-abstractions"] = String(params.max_abstractions);
       if (params.max_size != null)
         options["max-size"] = String(params.max_size);
-      if (params.no_cache) options["no-cache"] = true;
       if (params.force) options.force = true;
 
       await handleWikiAction(params.action, options, pi, ctx);
@@ -603,10 +521,7 @@ export default function (pi: ExtensionAPI) {
         content: [
           {
             type: "text",
-            text:
-              params.action === "open"
-                ? "code_wiki open: requested Obsidian to open the wiki."
-                : `code_wiki ${params.action}: prompt sent to agent for processing.`,
+            text: `code_wiki ${params.action}: prompt sent to agent for processing.`,
           },
         ],
         details: {},

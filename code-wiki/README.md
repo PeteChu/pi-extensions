@@ -36,7 +36,6 @@ No additional dependencies — the extension uses only Node.js built-ins and Pi'
 | `/code-wiki update [options]`           | Incrementally maintain an existing wiki                   |
 | `/code-wiki query "question" [options]` | Answer a codebase question and file substantial results   |
 | `/code-wiki doctor`                     | Check if a wiki exists and show its status                |
-| `/code-wiki open [options]`             | Open the wiki directory directly in Obsidian              |
 | `/code-wiki help`                       | Show usage information                                    |
 
 ### Query forms
@@ -50,18 +49,16 @@ Both forms are supported:
 
 ### Options
 
-| Option                   | Description                                   | Default                      |
-| ------------------------ | --------------------------------------------- | ---------------------------- |
-| `--output=<path>`        | Wiki output directory (relative to repo root) | `docs/code-wiki`             |
-| `--include=<glob,...>`   | File patterns to include                      | `*.py,*.js,*.ts,...`         |
-| `--exclude=<glob,...>`   | File patterns to exclude                      | tests, deps, build artifacts |
-| `--language=<lang>`      | Output language                               | `english`                    |
-| `--format=<standard\|obsidian>` | Output Markdown format                | `standard`                   |
-| `--max-abstractions=<n>` | Maximum number of abstractions                | `10`                         |
-| `--max-size=<bytes>`     | Maximum file size in bytes                    | `100000`                     |
-| `--question=<text>`      | Question for `query`                          | none                         |
-| `--no-cache`             | Tell the agent not to cache LLM responses     | Caching enabled              |
-| `--force`                | Overwrite existing wiki (init only)           | Prompt before overwrite      |
+| Option                          | Description                                   | Default                      |
+| ------------------------------- | --------------------------------------------- | ---------------------------- |
+| `--output=<path>`               | Wiki output directory (relative to repo root) | `docs/code-wiki`             |
+| `--include=<glob,...>`          | File patterns to include                      | `*.py,*.js,*.ts,...`         |
+| `--exclude=<glob,...>`          | File patterns to exclude                      | tests, deps, build artifacts |
+| `--language=<lang>`             | Output language                               | `english`                    |
+| `--format=<standard\|obsidian>` | Output Markdown format                        | `standard`                   |
+| `--max-size=<bytes>`            | Maximum file size in bytes                    | `100000`                     |
+| `--question=<text>`             | Question for `query`                          | none                         |
+| `--force`                       | Overwrite existing wiki (init only)           | Prompt before overwrite      |
 
 ## Generated Wiki Layout
 
@@ -90,13 +87,7 @@ In Obsidian mode, the prompt asks the agent to use:
 - Obsidian callouts such as `> [!note]` and `> [!warning]`.
 - Inline kebab-case `#tags` for graph/search discovery.
 
-On init, the extension creates `.obsidian/app.json` in the wiki directory and displays a copyable open URI plus platform command. You can also open the wiki directly from the extension:
-
-```bash
-/code-wiki open --output=my-vault/docs
-```
-
-The extension launches the Obsidian URI with the platform opener (`open`, `xdg-open`, or Windows `start`). It also keeps displaying the equivalent copyable command, for example:
+On init, the extension creates `.obsidian/app.json` in the wiki directory and displays a copyable open URI plus platform command, for example:
 
 ```text
 obsidian://open?path=<absolute-wiki-path>
@@ -105,7 +96,7 @@ xdg-open 'obsidian://open?path=<absolute-wiki-path>'  # Linux
 start "" "obsidian://open?path=<absolute-wiki-path>" # Windows
 ```
 
-`/code-wiki doctor` reports the stored format from `.code-wiki.json` and shows the Obsidian open URI/command for Obsidian wikis. `update` and `query` inherit the stored format automatically, so you do not need to repeat `--format=obsidian` after initialization.
+`/code-wiki doctor` reports the stored format from `.code-wiki.json`. `update` and `query` inherit the stored format automatically, so you do not need to repeat `--format=obsidian` after initialization.
 
 Standard mode remains the default and keeps the current portable Markdown behavior. Invalid `--format` values silently fall back to `standard`.
 
@@ -174,21 +165,20 @@ Use code_wiki with action="init" to generate a codebase wiki
 Use code_wiki with action="update" to incrementally maintain the wiki
 Use code_wiki with action="query" and question="..." to answer and file useful results
 Use code_wiki with action="doctor" to check the wiki status
-Use code_wiki with action="open" to open the wiki directly in Obsidian
 Pass format="obsidian" to initialize or maintain an Obsidian-ready vault
 ```
 
 ## Troubleshooting
 
-| Problem                           | Solution                                                                    |
-| --------------------------------- | --------------------------------------------------------------------------- |
-| "Not inside a Git repository"     | Run Pi from within a Git working directory                                  |
-| "Wiki directory already exists"   | Use `--force` to overwrite, or `/code-wiki update` to maintain it           |
-| Query requires a question         | Use `--question="..."` or positional text after `/code-wiki query`          |
-| Agent doesn't write all files     | The prompt may span multiple turns — the agent will continue until complete |
-| Wiki includes its own output      | The prompt explicitly excludes the wiki directory from source analysis      |
-| Doctor reports missing schema/log | Run `/code-wiki update`; the prompt will recreate missing control files     |
-| Obsidian does not open automatically | Copy the `obsidian://open?...` URI from `/code-wiki doctor --format=obsidian` |
+| Problem                           | Solution                                                                             |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
+| "Not inside a Git repository"     | Run Pi from within a Git working directory                                           |
+| "Wiki directory already exists"   | Use `--force` to overwrite, or `/code-wiki update` to maintain it                    |
+| Query requires a question         | Use `--question="..."` or positional text after `/code-wiki query`                   |
+| Agent doesn't write all files     | The prompt may span multiple turns — the agent will continue until complete          |
+| Wiki includes its own output      | The prompt explicitly excludes the wiki directory from source analysis               |
+| Doctor reports missing schema/log | Run `/code-wiki update`; the prompt will recreate missing control files              |
+| Obsidian vault not recognized     | Copy the `obsidian://open?...` URI from the init output to open in Obsidian manually |
 
 ## Files
 

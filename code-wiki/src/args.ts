@@ -45,7 +45,6 @@ const SUBCOMMANDS = new Set([
   "update",
   "query",
   "doctor",
-  "open",
   "help",
 ]);
 

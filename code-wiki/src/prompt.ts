@@ -40,9 +40,7 @@ interface PromptContext {
   projectName: string;
   language: string;
   format: WikiFormat;
-  maxAbstractions: number;
   maxSize: number;
-  noCache: boolean;
   includePatterns: string[];
   excludePatterns: string[];
   fileListStr: string;
@@ -151,7 +149,7 @@ Quickly scan a representative sample of files across different directories to un
 
 ### Step 2 — Identify Core Abstractions
 
-Read the most important files and identify up to **${ctx.maxAbstractions}** core abstractions (classes, modules, concepts, patterns) that form the backbone of the codebase.
+Read the most important files and identify the core abstractions (classes, modules, concepts, patterns) that form the backbone of the codebase.
 
 For each abstraction, note:
 - **Name**: A short, descriptive name${translatedNameInstruction}
@@ -430,9 +428,7 @@ function buildPromptContext(
 
   const language = getNonEmptyStringOption(options, "language", "english");
   const format = getFormatOption(options);
-  const maxAbstractions = getIntegerOption(options, "max-abstractions", "10");
   const maxSize = getIntegerOption(options, "max-size", "100000");
-  const noCache = !!options["no-cache"];
   const includeRaw = getStringOption(options, "include", DEFAULT_INCLUDE);
   const excludeRaw = getStringOption(options, "exclude", DEFAULT_EXCLUDE);
 
@@ -477,9 +473,7 @@ function buildPromptContext(
         exclude: excludeRaw,
         language,
         format,
-        maxAbstractions: String(maxAbstractions),
         maxSize: String(maxSize),
-        noCache: noCache ? "true" : undefined,
       },
       generatedFiles: [],
     },
@@ -494,9 +488,7 @@ function buildPromptContext(
     projectName,
     language,
     format,
-    maxAbstractions,
     maxSize,
-    noCache,
     includePatterns,
     excludePatterns,
     fileListStr,
@@ -514,11 +506,9 @@ function commonConfiguration(ctx: PromptContext): string {
 - **Repo root**: ${ctx.repoRoot}
 - **Wiki output directory**: ${ctx.wikiDir} (create it if needed)
 - **Language**: ${ctx.language}
-- **Max abstractions**: up to ${ctx.maxAbstractions} core concepts
 - **Max file size**: ${ctx.maxSize} bytes (skip larger files)
 - **Include patterns**: ${ctx.includePatterns.join(", ")}
-- **Exclude patterns**: ${ctx.excludePatterns.join(", ")}
-- **No cache requested**: ${ctx.noCache ? "yes" : "no"}`;
+- **Exclude patterns**: ${ctx.excludePatterns.join(", ")}`;
 }
 
 function schemaSpecification(ctx: PromptContext): string {
