@@ -16,11 +16,12 @@ import { matchesAny } from "./src/crawler";
 import { readMetadata } from "./src/metadata";
 import {
   buildInitPrompt,
-  buildUpdatePrompt,
   buildQueryPrompt,
+  buildUpdatePrompt,
 } from "./src/prompt";
 import { resolvePromptContext } from "./src/prompt-context";
 import { DEFAULT_EXCLUDE } from "./src/prompt-types";
+import { createReadGuard } from "./src/read-guard";
 import { getRepoRoot, isPathInsideRepo } from "./src/repo";
 import {
   mergeCodeWikiSettings,
@@ -37,54 +38,12 @@ import {
   type WikiFormat,
 } from "./src/wiki-layout";
 
+const guard = createReadGuard(matchesAny, DEFAULT_EXCLUDE);
+
 const DEFAULT_OUTPUT = "docs/code-wiki";
 const WIKI_ACTIONS = ["init", "update", "query", "doctor"] as const;
 type WikiAction = (typeof WIKI_ACTIONS)[number];
 type WikiOptions = Record<string, string | boolean | undefined>;
-
-// ── Read-guard state (active during code-wiki operations) ─────────────────
-
-interface ReadGuardState {
-  /** Absolute path to the repository root */
-  repoRoot: string;
-  /** Absolute path to the target directory (narrowed scope) */
-  targetDir: string;
-  /** Absolute path to the wiki output directory */
-  wikiDir: string;
-  /** Current code-wiki action */
-  action: WikiAction;
-  /** Parsed exclude patterns (repository-relative globs) */
-  excludePatterns: string[];
-}
-
-/**
- * Active read-guard state, or undefined when no code-wiki operation is running.
- * Use `setReadGuard` to activate and `clearReadGuard` to deactivate.
- */
-let readGuardState: ReadGuardState | undefined;
-
-function setReadGuard(state: ReadGuardState): void {
-  readGuardState = state;
-}
-
-function clearReadGuard(): void {
-  readGuardState = undefined;
-}
-
-/**
- * Parse comma-separated exclude patterns from wiki options.
- * Falls back to the same DEFAULT_EXCLUDE as the prompt builder when not explicitly set.
- */
-function parseExcludePatterns(options: WikiOptions): string[] {
-  const raw =
-    typeof options.exclude === "string" && options.exclude
-      ? options.exclude
-      : DEFAULT_EXCLUDE;
-  return raw
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
-}
 
 // ── Settings helpers ──────────────────────────────────────────────────────
 
@@ -354,12 +313,14 @@ async function handleWikiAction(
     });
     const prompt = buildInitPrompt(promptCtx);
 
-    setReadGuard({
+    guard.activate({
       repoRoot,
       targetDir,
       wikiDir,
-      action,
-      excludePatterns: parseExcludePatterns(options),
+      allowWikiReads: false,
+      excludePatterns: guard.parseExcludePatterns(
+        typeof options.exclude === "string" ? options.exclude : undefined,
+      ),
     });
     pi.sendUserMessage(prompt);
     if (format === "obsidian") {
@@ -386,12 +347,16 @@ async function handleWikiAction(
     });
     const prompt = buildUpdatePrompt(promptCtx);
 
-    setReadGuard({
+    guard.activate({
       repoRoot,
       targetDir,
       wikiDir,
-      action,
-      excludePatterns: parseExcludePatterns(mergedOptions),
+      allowWikiReads: true,
+      excludePatterns: guard.parseExcludePatterns(
+        typeof mergedOptions.exclude === "string"
+          ? mergedOptions.exclude
+          : undefined,
+      ),
     });
     pi.sendUserMessage(prompt);
     return;
@@ -408,12 +373,16 @@ async function handleWikiAction(
   });
   const prompt = buildQueryPrompt(promptCtx, question);
 
-  setReadGuard({
+  guard.activate({
     repoRoot,
     targetDir,
     wikiDir,
-    action,
-    excludePatterns: parseExcludePatterns(mergedOptions),
+    allowWikiReads: true,
+    excludePatterns: guard.parseExcludePatterns(
+      typeof mergedOptions.exclude === "string"
+        ? mergedOptions.exclude
+        : undefined,
+    ),
   });
   pi.sendUserMessage(prompt);
 }
@@ -569,56 +538,17 @@ export default function (pi: ExtensionAPI) {
 
   // ── Clear read-guard state when the agent finishes or session ends ──
   pi.on("agent_end", async () => {
-    clearReadGuard();
+    guard.deactivate();
   });
 
   pi.on("session_shutdown", async () => {
-    clearReadGuard();
+    guard.deactivate();
   });
 
   // ── Enforce target directory and exclude patterns on built-in `read` tool ──
   pi.on("tool_call", async (event, ctx) => {
     if (!isToolCallEventType("read", event)) return;
-    if (!readGuardState) return;
-
-    const { repoRoot, targetDir, wikiDir, action, excludePatterns } =
-      readGuardState;
-    const requestedPath = event.input.path;
-
-    // Resolve to an absolute path (relative paths are relative to cwd)
-    const resolved = path.resolve(ctx.cwd, requestedPath);
-
-    // Compute repo-relative path for matching
-    const relPath = path.relative(repoRoot, resolved);
-
-    // If the resolved path is outside the repo root, let the built-in read
-    // handle it normally (it will fail) rather than injecting our own error.
-    if (relPath.startsWith("..") || path.isAbsolute(relPath)) return;
-
-    // Allow wiki artifact reads for update/query
-    if (action === "update" || action === "query") {
-      const wikiRel = path.relative(repoRoot, wikiDir);
-      if (relPath === wikiRel || relPath.startsWith(wikiRel + path.sep)) {
-        return; // allowed — wiki artifact
-      }
-    }
-
-    // Block reads outside the target directory (narrowed scope)
-    const targetRel = path.relative(targetDir, resolved);
-    if (targetRel.startsWith("..") || path.isAbsolute(targetRel)) {
-      return {
-        block: true,
-        reason: `Blocked by code-wiki target scope: "${relPath}" is outside the target directory`,
-      };
-    }
-
-    // Check exclude patterns
-    if (matchesAny(relPath, excludePatterns)) {
-      return {
-        block: true,
-        reason: `Blocked by code-wiki exclude pattern: ${relPath}`,
-      };
-    }
+    return guard.check(event.input.path, ctx.cwd);
   });
 
   // ── Register code_wiki tool ──
