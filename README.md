@@ -30,6 +30,15 @@ pi install npm:@petechu/pi-answer-studio
 pi install npm:@petechu/pi-extension-toggle
 ```
 
+## 📚 code-wiki — `/code-wiki`
+
+> **⚠️ Beta — Highly Experimental**
+> Generate and maintain a persistent codebase wiki — init, update, and query documentation that compounds over time.
+
+```bash
+pi install npm:@petechu/pi-code-wiki
+```
+
 ## 📊 package-usage — `/package-usage`
 
 > Passively collected usage statistics for installed Pi packages. See which tools and skills earn their place in your workflow.
@@ -40,15 +49,6 @@ pi install npm:@petechu/pi-package-usage
 
 ---
 
-## Install all at once
-
-```bash
-pi install git:github.com/PeteChu/pi-extensions
-/reload
-```
-
 ## License
 
 MIT
-
----
