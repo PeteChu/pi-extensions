@@ -48,11 +48,9 @@ Both forms are supported:
 | ------------------------------- | --------------------------------------------- | ---------------------------- |
 | `--target=<path>`               | Target subdirectory (narrows scope)           | Repo root                    |
 | `--output=<path>`               | Wiki output directory (relative to repo root) | `docs/code-wiki`             |
-| `--include=<glob,...>`          | File patterns to include                      | `*.py,*.js,*.ts,...`         |
 | `--exclude=<glob,...>`          | File patterns to exclude (strictly enforced)  | tests, deps, build artifacts |
 | `--language=<lang>`             | Output language                               | `english`                    |
 | `--format=<standard\|obsidian>` | Output Markdown format                        | `standard`                   |
-| `--max-size=<bytes>`            | Maximum file size in bytes                    | `100000`                     |
 | `--question=<text>`             | Question for `query`                          | none                         |
 | `--force`                       | Overwrite existing wiki (init only)           | Prompt before overwrite      |
 
@@ -193,10 +191,8 @@ The `code_wiki` tool accepts all the same parameters as the `/code-wiki` command
 | `output`   | string (optional)  | Wiki directory path                    |
 | `language` | string (optional)  | Output language                        |
 | `format`   | string (optional)  | `standard` or `obsidian`               |
-| `include`  | string (optional)  | Comma-separated include patterns       |
 | `exclude`  | string (optional)  | Comma-separated exclude patterns       |
 | `question` | string (optional)  | Question for `query`                   |
-| `max_size` | number (optional)  | Max file size in bytes                 |
 | `force`    | boolean (optional) | Overwrite existing wiki on init        |
 
 ## Strict Exclude Enforcement

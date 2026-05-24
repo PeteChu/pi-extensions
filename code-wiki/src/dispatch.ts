@@ -142,6 +142,12 @@ export async function dispatch(
   }
 
   const settings = await loadCodeWikiSettings(ctx);
+
+  // Inject settings-derived values into options (without mutating the original)
+  if (settings.maxSize > 0) {
+    options = { ...options, "max-size": String(settings.maxSize) };
+  }
+
   const model = await selectGenerationModel(
     ctx.model,
     ctx.modelRegistry,

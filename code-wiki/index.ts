@@ -34,7 +34,6 @@ export default function (pi: ExtensionAPI) {
             "  --exclude=<glob,...>   File patterns to exclude\n" +
             "  --language=<lang>      Output language (default: english)\n" +
             "  --format=<standard|obsidian> Output Markdown format (default: standard)\n" +
-            "  --max-size=<bytes>     Max file size in bytes (default: 100000)\n" +
             "  --question=<text>      Question for query action\n" +
             "  --force                Overwrite existing wiki (init only)\n" +
             "\nExamples:\n" +
@@ -117,11 +116,6 @@ export default function (pi: ExtensionAPI) {
           description: "Question to answer when action='query'",
         }),
       ),
-      max_size: Type.Optional(
-        Type.Number({
-          description: "Maximum file size in bytes (default: 100000)",
-        }),
-      ),
       force: Type.Optional(
         Type.Boolean({ description: "Force overwrite existing wiki on init" }),
       ),
@@ -134,8 +128,6 @@ export default function (pi: ExtensionAPI) {
       if (params.format) options.format = params.format;
       if (params.exclude) options.exclude = params.exclude;
       if (params.question) options.question = params.question;
-      if (params.max_size != null)
-        options["max-size"] = String(params.max_size);
       if (params.force) options.force = true;
 
       await dispatch(params.action, options, pi, ctx, guard);

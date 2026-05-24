@@ -13,10 +13,16 @@ export interface ModelPreference {
 
 export interface CodeWikiSettings {
   generationModels?: ModelPreference[];
+  /**
+   * Maximum file size in bytes when scanning for wiki content.
+   * Files larger than this are skipped. Defaults to 100000.
+   */
+  maxSize?: number;
 }
 
 export interface ResolvedCodeWikiSettings {
   generationModels: ModelPreference[];
+  maxSize: number;
 }
 
 export const DEFAULT_GENERATION_MODELS: ModelPreference[] = [
@@ -39,6 +45,7 @@ export function mergeCodeWikiSettings(
       projectSettings?.generationModels ??
       globalSettings?.generationModels ??
       DEFAULT_GENERATION_MODELS,
+    maxSize: projectSettings?.maxSize ?? globalSettings?.maxSize ?? 100000,
   };
 }
 
