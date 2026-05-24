@@ -2,6 +2,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { DETAIL_LEVELS } from "./src/detail-level";
 import { parseArgs } from "./src/args";
 import { dispatch } from "./src/dispatch";
 import { matchesAny } from "./src/glob";
@@ -34,6 +35,7 @@ export default function (pi: ExtensionAPI) {
             "  --exclude=<glob,...>   File patterns to exclude\n" +
             "  --language=<lang>      Output language (default: english)\n" +
             "  --format=<standard|obsidian> Output Markdown format (default: standard)\n" +
+            "  --detail-level=<summary|standard|deep|exhaustive> Wiki explanation detail (default: standard)\n" +
             "  --question=<text>      Question for query action\n" +
             "  --force                Overwrite existing wiki (init only)\n" +
             "\nExamples:\n" +
@@ -83,6 +85,7 @@ export default function (pi: ExtensionAPI) {
       "Use code_wiki with action='doctor' when the user asks to check the wiki setup.",
       "Use the target parameter to narrow scope to a subdirectory (e.g., 'packages/backend') " +
         "in monorepos, instead of the full repo root.",
+      "Use detailLevel to control the depth of durable wiki explanations without changing source analysis scope.",
     ],
     parameters: Type.Object({
       action: StringEnum(["init", "update", "query", "doctor"] as const),
@@ -103,6 +106,12 @@ export default function (pi: ExtensionAPI) {
       format: Type.Optional(
         StringEnum(WIKI_FORMATS, {
           description: "Output Markdown format (default: standard)",
+        }),
+      ),
+      detailLevel: Type.Optional(
+        StringEnum(DETAIL_LEVELS, {
+          description:
+            "Durable wiki explanation detail (default: standard): summary, standard, deep, or exhaustive.",
         }),
       ),
       exclude: Type.Optional(
@@ -126,6 +135,7 @@ export default function (pi: ExtensionAPI) {
       if (params.output) options.output = params.output;
       if (params.language) options.language = params.language;
       if (params.format) options.format = params.format;
+      if (params.detailLevel) options.detailLevel = params.detailLevel;
       if (params.exclude) options.exclude = params.exclude;
       if (params.question) options.question = params.question;
       if (params.force) options.force = true;

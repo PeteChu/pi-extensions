@@ -4,6 +4,7 @@
  */
 
 import * as path from "node:path";
+import type { DetailLevel } from "./detail-level";
 import type { ProjectProfile } from "./profiler";
 import type { PromptContext } from "./prompt-types";
 import {
@@ -38,6 +39,8 @@ You will analyze the **${ctx.projectName}** codebase and generate a durable, LLM
 This is not a disposable one-shot answer: create a wiki that future update and query runs can maintain incrementally.
 
 ${commonConfiguration(ctx)}
+
+${detailLevelSpecification(ctx)}
 ${languageNote ? `\nLanguage note: ${languageNote}` : ""}
 
 ---
@@ -92,22 +95,23 @@ Determine the best order to present the abstractions. Put foundational concepts 
 
 ---
 
-### Step 5 — Write Beginner-Friendly Chapter Pages
+### Step 5 — Write Chapter Pages at the Selected Detail Level
 
-For each abstraction, write a detailed, beginner-friendly chapter as a Markdown file in \`${ctx.wikiRel}/\`.
+For each abstraction, write a beginner-friendly chapter at the selected detail level as a Markdown file in \`${ctx.wikiRel}/\`.
 
 **Each chapter file should:**
 - Start with a clear heading: \`# Chapter N: Abstraction Name\`
 - Explain what the abstraction does, using analogies where helpful
 - Show how it fits into the bigger picture
-- Include relevant code snippets from actual source files, with file-path citations such as \`src/foo.ts\`
-- Explain the snippets in plain language
+- Include short, relevant code snippets from actual source files only when they clarify behavior, with file-path citations such as \`src/foo.ts\`
+- Introduce why each snippet matters and explain it afterward in plain language
 - Link to related wiki pages using relative Markdown links
 - End with a brief summary
 
 **Writing style:**
 - Write for someone who is NEW to this codebase
 - Use analogies and concrete examples
+- Prefer explanatory prose, walkthroughs, and relationship descriptions over raw code excerpts
 - Avoid jargon without explanation
 - Keep pages self-contained but connected
 ${chapterLanguageInstruction}
@@ -174,6 +178,8 @@ The previous recorded commit was ${ctx.commit || "unknown"}. Current HEAD is ${c
 
 ${commonConfiguration(ctx)}
 
+${detailLevelSpecification(ctx)}
+
 ---
 
 ### Step 1 — Read Existing Wiki State First
@@ -226,7 +232,7 @@ Check for:
 
 ### Step 4 — Apply Incremental Updates
 
-Update only the affected wiki files where practical. Preserve useful existing structure and wording. When making claims about implementation details, cite source files by path and keep code snippets grounded in the current repository.
+Update only the affected wiki files where practical. Preserve useful existing structure and wording. Write touched or new durable wiki content at the selected detail level, but do not rewrite untouched pages solely to match a changed detail level. When making claims about implementation details, cite source files by path and keep code snippets grounded in the current repository.
 
 Required maintenance actions:
 - Update affected chapter/concept pages and cross-links.
@@ -234,7 +240,7 @@ Required maintenance actions:
 - Ensure \`${WIKI_SCHEMA_FILE}\` exists and matches the conventions below if it was missing or outdated.
 - Append exactly one new entry to \`${WIKI_LOG_FILE}\` using this parseable heading format:
   \`## [${ctx.generatedDate}] update | Incremental maintenance at ${ctx.commit || "unknown"}\`
-- Summarize changed files inspected, wiki pages touched, and known follow-up gaps in the log entry.
+- Summarize changed files inspected, wiki pages touched, detail-level/style gaps, and known follow-up gaps in the log entry.
 - Refresh \`${WIKI_METADATA_FILE}\` with the JSON below, replacing \`generatedFiles\` with the current list of generated wiki content files. Do not include \`${WIKI_METADATA_FILE}\` itself.
 
 Schema specification to use if needed:
@@ -266,6 +272,8 @@ Question: **${safeQuestion}**
 Use the existing **${ctx.projectName}** codebase wiki in \`${ctx.wikiRel}/\` as the first layer of knowledge, then inspect source files only as needed. Answer the user and preserve substantial findings back into the wiki so future questions compound instead of starting over.
 
 ${commonConfiguration(ctx)}
+
+${detailLevelSpecification(ctx)}
 
 ---
 
@@ -300,10 +308,12 @@ Read relevant wiki pages first based on the index. Then read source files needed
 
 ### Step 3 — Answer the Question
 
-Provide a clear answer in chat with:
+Provide a clear, concise answer in chat with:
 - A direct answer first
 - Supporting explanation grounded in wiki/source citations
 - Any uncertainty, outdated wiki notes, or follow-up suggestions
+
+Do not make the chat response long solely because the wiki detail level is deep or exhaustive; the detail level applies to durable wiki content.
 
 Use citations as inline file/path references such as \`${ctx.wikiRel}/01_example.md\` and \`src/example.ts\`.
 
@@ -317,7 +327,8 @@ Answer page requirements:
 - Filename: date prefix plus a short slug, e.g. \`${WIKI_ANSWERS_DIR}/${ctx.generatedDate}-model-selection.md\`
 - Heading: \`# <question or concise title>\`
 - Include the original question
-- Include the durable answer with citations to wiki/source files
+- Write the durable answer at the selected detail level, scaled to the question's importance
+- Include citations to wiki/source files
 - Link to related chapter/concept pages
 - Note any follow-up gaps
 
@@ -348,6 +359,61 @@ ${commonRules(ctx)}${ctx.formatRulesText}
 
 // ── Private helpers ───────────────────────────────────────────────────────
 
+const DETAIL_LEVEL_GUIDANCE: Record<
+  DetailLevel,
+  { contract: string; target: string; index: string; diagram: string }
+> = {
+  summary: {
+    contract:
+      "Concise orientation: explain purpose, main responsibilities, and relationships with minimal snippets only when essential.",
+    target: "~300–700 words per chapter/concept page, 0–1 short snippets.",
+    index: "Keep the index compact.",
+    diagram: "Show major components only.",
+  },
+  standard: {
+    contract:
+      "Beginner-friendly but not thin: explain why each abstraction exists, how it fits, main data/control flow, and important files.",
+    target: "~900–1,600 words per chapter/concept page, 1–3 short snippets.",
+    index: "Use helpful one-line summaries.",
+    diagram: "Show core abstractions and primary flows.",
+  },
+  deep: {
+    contract:
+      "Thorough walkthrough: include lifecycle/data-flow examples, important edge cases, module interactions, and source-grounded explanations.",
+    target: "~1,800–3,500 words per chapter/concept page, 2–5 short snippets.",
+    index:
+      "Use richer summaries and relationship notes without duplicating chapters.",
+    diagram:
+      "Show more nuanced relationships where useful, while avoiding unreadable diagrams.",
+  },
+  exhaustive: {
+    contract:
+      "Near-reference level: cover most relevant internals, public surfaces, important variants, gotchas, and detailed relationships without raw code dumps.",
+    target:
+      "~3,500+ words per chapter/concept page when warranted; snippets as needed, never as a raw code dump.",
+    index:
+      "Use richer summaries and relationship notes without turning the index into a chapter.",
+    diagram:
+      "Show more nuanced relationships where useful, while avoiding unreadable giant diagrams.",
+  },
+};
+
+function detailLevelSpecification(ctx: PromptContext): string {
+  const guidance = DETAIL_LEVEL_GUIDANCE[ctx.detailLevel];
+
+  return `### Detail Level Contract
+- **Selected detail level**: \`${ctx.detailLevel}\`
+- Applies to durable wiki content: generated pages, maintained pages, index summaries/diagrams, and filed answer pages.
+- Does **not** change source analysis scope, target/exclude rules, or which core concepts deserve pages.
+- Higher detail means more explanation, walkthroughs, relationships, and source-grounded narrative — not more code dumping.
+- Soft target for chapter/concept pages: ${guidance.target}
+- Current preset contract: ${guidance.contract}
+- Index guidance: ${guidance.index}
+- Diagram guidance: ${guidance.diagram}
+- Durable query answer pages follow the same style, scaled to the question's importance; chat answers stay concise by default.
+- Code snippets are evidence, not the main content. Prefer prose explanations, diagrams, and walkthroughs over long snippets. Use snippets only when they clarify source behavior; keep them short, cite the source path, introduce why the snippet matters, and explain it afterward.`;
+}
+
 function commonConfiguration(ctx: PromptContext): string {
   const targetLine =
     ctx.targetDir !== ctx.repoRoot
@@ -358,6 +424,7 @@ function commonConfiguration(ctx: PromptContext): string {
 - **Repo root**: ${ctx.repoRoot}${targetLine}
 - **Wiki output directory**: ${ctx.wikiDir} (create it if needed)
 - **Language**: ${ctx.language}
+- **Detail level**: ${ctx.detailLevel}
 - **Max file size**: ${ctx.maxSize} bytes (skip larger files)
 - **Include patterns** (auto-detected): ${ctx.includePatterns.join(", ") || "(none)"}
 - **Exclude patterns**: ${ctx.excludePatterns.join(", ")}`;
@@ -390,12 +457,38 @@ This wiki documents the ${ctx.projectName} codebase only. Source files in the re
 - Keep pages focused; create or update cross-links instead of duplicating long explanations.
 - Update code snippets when source files change.
 
+## Detail Level
+
+- Current detail level: \`${ctx.detailLevel}\`.
+- Detail Level applies to durable wiki content: generated pages, maintained pages, index summaries/diagrams, and filed answer pages.
+- Detail Level does not change source analysis scope, target/exclude rules, or which core concepts deserve pages.
+- Preset contract:
+  - \`summary\`: Concise orientation; purpose, main responsibilities, and relationships; minimal snippets only when essential.
+  - \`standard\`: Beginner-friendly but not thin; explains why each abstraction exists, how it fits, main flows, and important files.
+  - \`deep\`: Thorough walkthroughs; lifecycle/data-flow examples, important edge cases, module interactions, and source-grounded explanations.
+  - \`exhaustive\`: Near-reference level; relevant internals, public surfaces, variants, gotchas, and detailed relationships without raw code dumps.
+- Soft chapter targets:
+  - \`summary\`: ~300–700 words, 0–1 short snippets.
+  - \`standard\`: ~900–1,600 words, 1–3 short snippets.
+  - \`deep\`: ~1,800–3,500 words, 2–5 short snippets.
+  - \`exhaustive\`: ~3,500+ words when warranted; snippets as needed, never as a raw code dump.
+- On update, apply the current detail level to touched or new pages; do not rewrite untouched pages solely to match a changed detail level.
+- Query chat answers may stay concise; durable answer pages should follow the current detail level, scaled to the question's importance.
+
+## Snippet Discipline
+
+- Code snippets are evidence, not the main content.
+- Prefer prose explanations, diagrams, and walkthroughs over long snippets.
+- Use snippets only when they clarify source behavior.
+- Keep snippets short, cite the source path, introduce why each snippet matters, and explain it afterward.
+
 ## Index Maintenance
 
 - Keep \`${WIKI_INDEX_FILE}\` as a complete catalog of generated pages.
 - Each listed page should have a link and one-line summary.
 - Maintain sections for chapters/concepts, query answers, and maintenance files.
-- Update relationship diagrams and cross-links when abstractions change.
+- Reflect the current detail level lightly: compact for \`summary\`, useful one-line summaries for \`standard\`, and richer summaries or relationship notes for \`deep\`/\`exhaustive\` without turning the index into a chapter.
+- Update relationship diagrams and cross-links when abstractions change. Diagram detail should follow the current detail level, but avoid unreadable giant diagrams.
 
 ## Log Maintenance
 
@@ -408,7 +501,7 @@ This wiki documents the ${ctx.projectName} codebase only. Source files in the re
 
 1. Read this schema, \`${WIKI_INDEX_FILE}\`, \`${WIKI_LOG_FILE}\`, and \`${WIKI_METADATA_FILE}\` first.
 2. Inspect changed or relevant source files.
-3. Update only affected wiki pages where practical.
+3. Update only affected wiki pages where practical, applying the current detail level to touched or new durable content.
 4. Refresh cross-links, the index, the log, and metadata.
 5. Preserve useful existing synthesis unless current source code contradicts it.
 
@@ -417,7 +510,7 @@ This wiki documents the ${ctx.projectName} codebase only. Source files in the re
 1. Read \`${WIKI_INDEX_FILE}\`, \`${WIKI_LOG_FILE}\`, and this schema first.
 2. Read relevant wiki pages, then source files needed for verification.
 3. Answer with citations.
-4. If the answer is durable or substantial, write it under \`${WIKI_ANSWERS_DIR}/\`.
+4. If the answer is durable or substantial, write it under \`${WIKI_ANSWERS_DIR}/\` at the current detail level.
 5. Link the answer from \`${WIKI_INDEX_FILE}\`, append \`${WIKI_LOG_FILE}\`, and refresh \`${WIKI_METADATA_FILE}\`.
 
 ## Citation Expectations
@@ -439,6 +532,7 @@ function commonRules(ctx: PromptContext): string {
 - **Include patterns are advisory, not enforced.** The file listing helps orient you but you may read files outside it.
 - **Excluded patterns are strictly enforced.** The extension blocks \`read\` tool calls matching any exclude pattern. If a read is blocked, the file is excluded — do not try to bypass this.${targetRule}
 - **Never include the wiki output directory (\`${ctx.wikiRel}/\`) as source analysis input.** It must not feed back into source discovery.
+- **Code snippets are evidence, not the main content.** Prefer prose explanations, diagrams, and walkthroughs over long snippets. Use snippets only when they clarify source behavior; keep them short, cite the source path, introduce why each snippet matters, and explain it afterward.
 - **It is OK to read and edit files inside \`${ctx.wikiRel}/\` only as wiki artifacts.**
 - **Keep generated file paths relative to the wiki directory in metadata.**
 - **Do not include \`${WIKI_METADATA_FILE}\` itself in \`generatedFiles\`.**`;
@@ -485,7 +579,7 @@ function buildMetadataJson(ctx: PromptContext, operation: string): string {
 
   return JSON.stringify(
     {
-      version: "1.1.0",
+      version: "1.2.0",
       repoRoot: ctx.repoRoot,
       targetDir: ctx.targetDir !== ctx.repoRoot ? ctx.targetDir : undefined,
       gitCommit: ctx.commit,
@@ -504,6 +598,7 @@ function buildMetadataJson(ctx: PromptContext, operation: string): string {
         exclude: ctx.excludePatterns.join(","),
         language: ctx.language,
         format: ctx.format,
+        detailLevel: ctx.detailLevel,
         maxSize: String(ctx.maxSize),
       },
       generatedFiles: [],

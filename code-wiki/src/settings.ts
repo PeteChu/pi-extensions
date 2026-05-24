@@ -3,6 +3,11 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import * as fsPromises from "node:fs/promises";
 import * as path from "node:path";
+import {
+  formatDetailLevels,
+  isDetailLevel,
+  type DetailLevel,
+} from "./detail-level";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -18,12 +23,19 @@ export interface CodeWikiSettings {
    * Files larger than this are skipped. Defaults to 100000.
    */
   maxSize?: number;
+  /**
+   * Default detail level for new wikis. Existing wiki metadata takes precedence.
+   */
+  defaultDetailLevel?: DetailLevel;
 }
 
 export interface ResolvedCodeWikiSettings {
   generationModels: ModelPreference[];
   maxSize: number;
+  defaultDetailLevel?: DetailLevel;
 }
+
+export const DEFAULT_MAX_SIZE = 100000;
 
 export const DEFAULT_GENERATION_MODELS: ModelPreference[] = [
   { provider: "openai-codex", id: "gpt-5.4-mini" },
@@ -45,7 +57,12 @@ export function mergeCodeWikiSettings(
       projectSettings?.generationModels ??
       globalSettings?.generationModels ??
       DEFAULT_GENERATION_MODELS,
-    maxSize: projectSettings?.maxSize ?? globalSettings?.maxSize ?? 100000,
+    maxSize:
+      parseSettingsMaxSize(projectSettings?.maxSize) ??
+      parseSettingsMaxSize(globalSettings?.maxSize) ??
+      DEFAULT_MAX_SIZE,
+    defaultDetailLevel:
+      projectSettings?.defaultDetailLevel ?? globalSettings?.defaultDetailLevel,
   };
 }
 
@@ -95,9 +112,52 @@ export async function loadCodeWikiSettings(
   ]);
 
   return mergeCodeWikiSettings(
-    globalSettings?.codeWiki as CodeWikiSettings | undefined,
-    projectSettings?.codeWiki as CodeWikiSettings | undefined,
+    sanitizeCodeWikiSettings(
+      globalSettings?.codeWiki as CodeWikiSettings | undefined,
+      ctx,
+      globalPath,
+    ),
+    sanitizeCodeWikiSettings(
+      projectSettings?.codeWiki as CodeWikiSettings | undefined,
+      ctx,
+      projectPath,
+    ),
   );
+}
+
+function parseSettingsMaxSize(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function sanitizeCodeWikiSettings(
+  settings: CodeWikiSettings | undefined,
+  ctx: ExtensionContext,
+  filePath: string,
+): CodeWikiSettings | undefined {
+  if (!settings) {
+    return undefined;
+  }
+
+  const { defaultDetailLevel, ...rest } = settings;
+
+  if (defaultDetailLevel === undefined) {
+    return rest;
+  }
+
+  if (isDetailLevel(defaultDetailLevel)) {
+    return { ...rest, defaultDetailLevel };
+  }
+
+  if (ctx.hasUI) {
+    ctx.ui.notify(
+      `Invalid codeWiki.defaultDetailLevel "${String(defaultDetailLevel)}" in ${filePath}; ignoring. Use: ${formatDetailLevels()}.`,
+      "warning",
+    );
+  }
+
+  return rest;
 }
 
 // ── Model selection ───────────────────────────────────────────────────────

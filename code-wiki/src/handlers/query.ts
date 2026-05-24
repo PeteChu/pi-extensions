@@ -1,11 +1,12 @@
 import * as path from "node:path";
+import { parseDetailLevel, resolveDetailLevel } from "../detail-level";
 import { readMetadata } from "../metadata";
 import { buildQueryPrompt } from "../prompt";
 import { resolvePromptContext } from "../prompt-context";
 import { DEFAULT_EXCLUDE } from "../prompt-types";
 import { splitPatterns } from "../utils";
 import { WIKI_METADATA_FILE } from "../wiki-layout";
-import type { WikiActionHandler } from "./types";
+import type { WikiActionHandler, WikiOptions } from "./types";
 
 export const queryHandler: WikiActionHandler = {
   async handle({
@@ -18,15 +19,23 @@ export const queryHandler: WikiActionHandler = {
     targetBasename,
     output,
     guard,
+    settings,
   }) {
     const question =
       typeof options.question === "string" ? options.question.trim() : "";
 
     const metadataPath = path.join(wikiDir, WIKI_METADATA_FILE);
     const existingMeta = readMetadata(metadataPath);
-    const mergedOptions = existingMeta
-      ? { ...existingMeta.options, ...options }
-      : options;
+    const existingOptions = existingMeta ? (existingMeta.options ?? {}) : null;
+    const detailLevel = resolveDetailLevel({
+      explicit: parseDetailLevel(options.detailLevel),
+      existingMetadataOptions: existingOptions,
+      settingsDefault: settings.defaultDetailLevel,
+      warn: (message) => ctx.ui.notify(message, "warning"),
+    });
+    const mergedOptions: WikiOptions = existingMeta
+      ? { ...existingOptions, ...options, detailLevel }
+      : { ...options, detailLevel };
 
     ctx.ui.notify(`Querying codebase wiki at ${output} ...`, "info");
     const promptCtx = resolvePromptContext({
@@ -35,6 +44,7 @@ export const queryHandler: WikiActionHandler = {
       wikiDir,
       projectName: targetBasename,
       options: mergedOptions,
+      maxSize: settings.maxSize,
       previousCommit: existingMeta?.gitCommit ?? undefined,
     });
     const prompt = buildQueryPrompt(promptCtx, question);

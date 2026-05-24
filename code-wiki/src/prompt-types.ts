@@ -1,3 +1,4 @@
+import type { DetailLevel } from "./detail-level";
 import type { ProjectProfile } from "./profiler";
 import type { WikiFormat } from "./wiki-layout";
 
@@ -7,6 +8,7 @@ export interface PromptConfig {
   wikiDir: string;
   projectName: string;
   options: Record<string, string | boolean | undefined>;
+  maxSize: number;
   previousCommit?: string;
 }
 
@@ -18,6 +20,7 @@ export interface PromptContext {
   projectName: string;
   language: string;
   format: WikiFormat;
+  detailLevel: DetailLevel;
   maxSize: number;
   includePatterns: string[];
   excludePatterns: string[];

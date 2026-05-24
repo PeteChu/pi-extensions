@@ -1,11 +1,12 @@
 import * as path from "node:path";
+import { parseDetailLevel, resolveDetailLevel } from "../detail-level";
 import { readMetadata } from "../metadata";
 import { buildUpdatePrompt } from "../prompt";
 import { resolvePromptContext } from "../prompt-context";
 import { DEFAULT_EXCLUDE } from "../prompt-types";
 import { splitPatterns } from "../utils";
 import { WIKI_METADATA_FILE } from "../wiki-layout";
-import type { WikiActionHandler } from "./types";
+import type { WikiActionHandler, WikiOptions } from "./types";
 
 export const updateHandler: WikiActionHandler = {
   async handle({
@@ -18,12 +19,20 @@ export const updateHandler: WikiActionHandler = {
     targetBasename,
     output,
     guard,
+    settings,
   }) {
     const metadataPath = path.join(wikiDir, WIKI_METADATA_FILE);
     const existingMeta = readMetadata(metadataPath);
-    const mergedOptions = existingMeta
-      ? { ...existingMeta.options, ...options }
-      : options;
+    const existingOptions = existingMeta ? (existingMeta.options ?? {}) : null;
+    const detailLevel = resolveDetailLevel({
+      explicit: parseDetailLevel(options.detailLevel),
+      existingMetadataOptions: existingOptions,
+      settingsDefault: settings.defaultDetailLevel,
+      warn: (message) => ctx.ui.notify(message, "warning"),
+    });
+    const mergedOptions: WikiOptions = existingMeta
+      ? { ...existingOptions, ...options, detailLevel }
+      : { ...options, detailLevel };
 
     ctx.ui.notify(`Incrementally updating wiki at ${output} ...`, "info");
     const promptCtx = resolvePromptContext({
@@ -32,6 +41,7 @@ export const updateHandler: WikiActionHandler = {
       wikiDir,
       projectName: targetBasename,
       options: mergedOptions,
+      maxSize: settings.maxSize,
       previousCommit: existingMeta?.gitCommit ?? undefined,
     });
     const prompt = buildUpdatePrompt(promptCtx);

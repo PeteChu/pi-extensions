@@ -1,9 +1,11 @@
 import * as fs from "node:fs";
+import type { DetailLevel } from "./detail-level";
 import type { WikiFormat } from "./wiki-layout";
 
 export interface WikiMetadataOptions
   extends Record<string, string | boolean | undefined> {
   format?: WikiFormat;
+  detailLevel?: DetailLevel;
 }
 
 export interface WikiMetadata {

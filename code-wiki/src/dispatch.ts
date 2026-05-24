@@ -4,6 +4,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  formatDetailLevels,
+  parseExplicitDetailLevelOption,
+} from "./detail-level";
 import { doctorHandler } from "./handlers/doctor";
 import { initHandler } from "./handlers/init";
 import { queryHandler } from "./handlers/query";
@@ -109,6 +113,19 @@ export async function dispatch(
 
   const { repoRoot, targetDir, wikiDir, targetBasename, output } = paths;
 
+  const explicitDetailLevel = parseExplicitDetailLevelOption(options);
+  if (!explicitDetailLevel.ok) {
+    ctx.ui.notify(
+      `Invalid --detail-level "${explicitDetailLevel.raw}". Use: ${formatDetailLevels()}.`,
+      "error",
+    );
+    return;
+  }
+
+  if (explicitDetailLevel.value) {
+    options = { ...options, detailLevel: explicitDetailLevel.value };
+  }
+
   // Doctor: no model, no settings, no guard — just inspect and notify.
   if (action === "doctor") {
     doctorHandler.inspect({
@@ -143,11 +160,6 @@ export async function dispatch(
 
   const settings = await loadCodeWikiSettings(ctx);
 
-  // Inject settings-derived values into options (without mutating the original)
-  if (settings.maxSize > 0) {
-    options = { ...options, "max-size": String(settings.maxSize) };
-  }
-
   const model = await selectGenerationModel(
     ctx.model,
     ctx.modelRegistry,
@@ -177,6 +189,7 @@ export async function dispatch(
     targetBasename,
     output,
     guard,
+    settings,
   };
 
   await handlers[action].handle(handlerCtx);

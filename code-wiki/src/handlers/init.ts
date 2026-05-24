@@ -1,10 +1,11 @@
 import * as fs from "node:fs";
+import { parseDetailLevel, resolveDetailLevel } from "../detail-level";
 import { getFormatAdapter } from "../obsidian";
 import { buildInitPrompt } from "../prompt";
 import { resolvePromptContext } from "../prompt-context";
 import { DEFAULT_EXCLUDE } from "../prompt-types";
 import { splitPatterns } from "../utils";
-import type { WikiActionHandler } from "./types";
+import type { WikiActionHandler, WikiOptions } from "./types";
 import { getWikiFormatOption } from "./types";
 
 export const initHandler: WikiActionHandler = {
@@ -18,6 +19,7 @@ export const initHandler: WikiActionHandler = {
     targetBasename,
     output,
     guard,
+    settings,
   }) {
     const format = getWikiFormatOption(options.format) ?? "standard";
 
@@ -32,6 +34,12 @@ export const initHandler: WikiActionHandler = {
       ctx.ui.notify(`Force-overwriting existing wiki at "${output}"`, "info");
     }
 
+    const detailLevel = resolveDetailLevel({
+      explicit: parseDetailLevel(options.detailLevel),
+      settingsDefault: settings.defaultDetailLevel,
+    });
+    const effectiveOptions: WikiOptions = { ...options, detailLevel };
+
     getFormatAdapter(format).setup(wikiDir);
 
     ctx.ui.notify(`Generating codebase wiki into ${output} ...`, "info");
@@ -40,7 +48,8 @@ export const initHandler: WikiActionHandler = {
       targetDir,
       wikiDir,
       projectName: targetBasename,
-      options,
+      options: effectiveOptions,
+      maxSize: settings.maxSize,
     });
     const prompt = buildInitPrompt(promptCtx);
 
@@ -50,7 +59,9 @@ export const initHandler: WikiActionHandler = {
       wikiDir,
       allowWikiReads: false,
       excludePatterns: splitPatterns(
-        typeof options.exclude === "string" ? options.exclude : DEFAULT_EXCLUDE,
+        typeof effectiveOptions.exclude === "string"
+          ? effectiveOptions.exclude
+          : DEFAULT_EXCLUDE,
       ),
     });
     pi.sendUserMessage(prompt);

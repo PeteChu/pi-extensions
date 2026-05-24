@@ -44,15 +44,48 @@ Both forms are supported:
 
 ### Options
 
-| Option                          | Description                                   | Default                      |
-| ------------------------------- | --------------------------------------------- | ---------------------------- |
-| `--target=<path>`               | Target subdirectory (narrows scope)           | Repo root                    |
-| `--output=<path>`               | Wiki output directory (relative to repo root) | `docs/code-wiki`             |
-| `--exclude=<glob,...>`          | File patterns to exclude (strictly enforced)  | tests, deps, build artifacts |
-| `--language=<lang>`             | Output language                               | `english`                    |
-| `--format=<standard\|obsidian>` | Output Markdown format                        | `standard`                   |
-| `--question=<text>`             | Question for `query`                          | none                         |
-| `--force`                       | Overwrite existing wiki (init only)           | Prompt before overwrite      |
+| Option                                                 | Description                                   | Default                      |
+| ------------------------------------------------------ | --------------------------------------------- | ---------------------------- |
+| `--target=<path>`                                      | Target subdirectory (narrows scope)           | Repo root                    |
+| `--output=<path>`                                      | Wiki output directory (relative to repo root) | `docs/code-wiki`             |
+| `--exclude=<glob,...>`                                 | File patterns to exclude (strictly enforced)  | tests, deps, build artifacts |
+| `--language=<lang>`                                    | Output language                               | `english`                    |
+| `--format=<standard\|obsidian>`                        | Output Markdown format                        | `standard`                   |
+| `--detail-level=<summary\|standard\|deep\|exhaustive>` | Durable wiki explanation detail               | `standard`                   |
+| `--question=<text>`                                    | Question for `query`                          | none                         |
+| `--force`                                              | Overwrite existing wiki (init only)           | Prompt before overwrite      |
+
+### Detail Level
+
+Use `--detail-level` to control how much explanation durable wiki content should contain without changing source analysis scope.
+
+```bash
+/code-wiki init --detail-level=summary
+/code-wiki init --detail-level=deep
+/code-wiki update --detail-level=exhaustive
+```
+
+| Detail level | Contract                                                                                                                          | Soft target per chapter/concept page   |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `summary`    | Concise orientation: purpose, main responsibilities, and relationships. Minimal snippets only when essential.                     | ~300–700 words, 0–1 short snippets     |
+| `standard`   | Default. Beginner-friendly but not thin: explains why each abstraction exists, how it fits, main flows, and important files.      | ~900–1,600 words, 1–3 short snippets   |
+| `deep`       | Thorough walkthroughs: lifecycle/data-flow examples, important edge cases, module interactions, and source-grounded explanations. | ~1,800–3,500 words, 2–5 short snippets |
+| `exhaustive` | Near-reference level: relevant internals, public surfaces, variants, gotchas, and detailed relationships without raw code dumps.  | ~3,500+ words when warranted           |
+
+Detail level applies to durable wiki content: generated pages, maintained pages, index summaries/diagrams, and filed answer pages. `/code-wiki query` chat responses stay concise by default; any durable answer page follows the wiki detail level.
+
+The selected level is stored in `.code-wiki.json` and reflected in `.code-wiki-schema.md`. `update` and `query` inherit the existing wiki's level unless explicitly overridden. If an override is passed to `update` or `query`, it is persisted for future maintenance. `init --force` behaves like a fresh init and does not preserve the previous wiki's detail level.
+
+Precedence:
+
+1. Explicit CLI/tool option (`--detail-level` or `detailLevel`)
+2. Existing wiki metadata for `update`/`query`
+3. `codeWiki.defaultDetailLevel` from project/global settings for new wikis
+4. Built-in default: `standard`
+
+Invalid explicit values fail fast. Invalid settings values are warned about and ignored. Existing metadata without `detailLevel` is treated as `standard`.
+
+Code snippets are evidence, not the main content. Generated wiki pages should prefer prose explanations, diagrams, and walkthroughs over long snippets; snippets should be short, cited, introduced, and explained afterward.
 
 ### Target Directory (Monorepo Support)
 
@@ -80,7 +113,7 @@ The wiki is written to `docs/code-wiki/` by default and includes:
 - `.code-wiki-schema.md` — durable maintenance rules for future Pi agents: scope, page conventions, index/log maintenance, cross-linking, citations, update workflow, and query-answer filing workflow.
 - `log.md` — append-only chronological record with parseable headings such as `## [YYYY-MM-DD] update | ...`.
 - `answers/` — durable answer pages created from substantial `/code-wiki query` results.
-- `.code-wiki.json` — metadata: settings, layout, git commit, timestamps, last operation, selected format, and generated file list.
+- `.code-wiki.json` — metadata: settings, layout, git commit, timestamps, last operation, selected format/detail level, and generated file list.
 - `.obsidian/app.json` — created only for `--format=obsidian` so the output directory can be opened as an Obsidian vault.
 
 ## Obsidian Mode
@@ -157,6 +190,8 @@ Trivial answers may be logged without creating an answer page.
 ```json
 {
   "codeWiki": {
+    "defaultDetailLevel": "deep",
+    "maxSize": 100000,
     "generationModels": [
       { "provider": "openai-codex", "id": "gpt-5.4-mini" },
       { "provider": "github-copilot", "id": "gpt-5.4-mini" }
@@ -165,7 +200,7 @@ Trivial answers may be logged without creating an answer page.
 }
 ```
 
-Place this in `~/.pi/settings.json` (global) or `<project>/.pi/settings.json` (per-project, overrides global).
+Place this in `~/.pi/settings.json` (global) or `<project>/.pi/settings.json` (per-project, overrides global). `defaultDetailLevel` applies to new wikis; existing wiki metadata takes precedence during `update` and `query`. `maxSize` is only configured through settings.
 
 ## Custom Tool
 
@@ -178,22 +213,24 @@ Use code_wiki with action="query" and question="..." to answer and file useful r
 Use code_wiki with action="doctor" to check the wiki status
 Pass target="packages/backend" to narrow scope to a subdirectory
 Pass format="obsidian" to initialize or maintain an Obsidian-ready vault
+Pass detailLevel="deep" to control durable wiki explanation detail
 ```
 
 ### Custom Tool Parameters
 
 The `code_wiki` tool accepts all the same parameters as the `/code-wiki` command, including:
 
-| Parameter  | Type               | Description                            |
-| ---------- | ------------------ | -------------------------------------- |
-| `action`   | string             | `init`, `update`, `query`, or `doctor` |
-| `target`   | string (optional)  | Subdirectory to scope the wiki to      |
-| `output`   | string (optional)  | Wiki directory path                    |
-| `language` | string (optional)  | Output language                        |
-| `format`   | string (optional)  | `standard` or `obsidian`               |
-| `exclude`  | string (optional)  | Comma-separated exclude patterns       |
-| `question` | string (optional)  | Question for `query`                   |
-| `force`    | boolean (optional) | Overwrite existing wiki on init        |
+| Parameter     | Type               | Description                                    |
+| ------------- | ------------------ | ---------------------------------------------- |
+| `action`      | string             | `init`, `update`, `query`, or `doctor`         |
+| `target`      | string (optional)  | Subdirectory to scope the wiki to              |
+| `output`      | string (optional)  | Wiki directory path                            |
+| `language`    | string (optional)  | Output language                                |
+| `format`      | string (optional)  | `standard` or `obsidian`                       |
+| `detailLevel` | string (optional)  | `summary`, `standard`, `deep`, or `exhaustive` |
+| `exclude`     | string (optional)  | Comma-separated exclude patterns               |
+| `question`    | string (optional)  | Question for `query`                           |
+| `force`       | boolean (optional) | Overwrite existing wiki on init                |
 
 ## Strict Exclude Enforcement
 
@@ -216,6 +253,7 @@ The enforcement is a safety net, not a replacement for prompt guidance. The agen
 | "Not inside a Git repository"     | Run Pi from within a Git working directory                                           |
 | "Wiki directory already exists"   | Use `--force` to overwrite, or `/code-wiki update` to maintain it                    |
 | Query requires a question         | Use `--question="..."` or positional text after `/code-wiki query`                   |
+| Invalid detail level              | Use one of `summary`, `standard`, `deep`, or `exhaustive`                            |
 | Agent doesn't write all files     | The prompt may span multiple turns — the agent will continue until complete          |
 | Wiki includes its own output      | The prompt explicitly excludes the wiki directory from source analysis               |
 | "Target directory does not exist" | Ensure the path exists relative to the repo root, e.g. `--target=packages/backend`   |

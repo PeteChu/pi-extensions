@@ -3,6 +3,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { ReadGuard } from "../read-guard";
+import type { ResolvedCodeWikiSettings } from "../settings";
 import { WIKI_FORMATS, type WikiFormat } from "../wiki-layout";
 
 // ── Shared options type ───────────────────────────────────────────────────
@@ -41,6 +42,7 @@ export interface WikiActionHandlerContext {
   /** The original output string (e.g. "docs/code-wiki") for error messages. */
   output: string;
   guard: ReadGuard;
+  settings: ResolvedCodeWikiSettings;
 }
 
 export interface WikiInspector {

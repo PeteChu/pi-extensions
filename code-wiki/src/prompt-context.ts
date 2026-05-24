@@ -5,6 +5,11 @@
  */
 
 import * as path from "node:path";
+import {
+  DEFAULT_DETAIL_LEVEL,
+  parseDetailLevel,
+  type DetailLevel,
+} from "./detail-level";
 import { crawlFiles } from "./file-lister";
 import { getFormatAdapter } from "./obsidian";
 import type { ProjectProfile } from "./profiler";
@@ -24,12 +29,19 @@ import { WIKI_FORMATS, type WikiFormat } from "./wiki-layout";
  * the pure prompt composers need in a single structured context.
  */
 export function resolvePromptContext(config: PromptConfig): PromptContext {
-  const { repoRoot, targetDir, wikiDir, projectName, options, previousCommit } =
-    config;
+  const {
+    repoRoot,
+    targetDir,
+    wikiDir,
+    projectName,
+    options,
+    maxSize,
+    previousCommit,
+  } = config;
 
   const language = getNonEmptyStringOption(options, "language", "english");
   const format = getFormatOption(options);
-  const maxSize = getIntegerOption(options, "max-size", "100000");
+  const detailLevel = getDetailLevelOption(options);
   const excludeRaw = getStringOption(options, "exclude", DEFAULT_EXCLUDE);
 
   // Auto-discover include patterns from the project profile
@@ -78,6 +90,7 @@ export function resolvePromptContext(config: PromptConfig): PromptContext {
     projectName,
     language,
     format,
+    detailLevel,
     maxSize,
     includePatterns,
     excludePatterns,
@@ -212,17 +225,17 @@ function getNonEmptyStringOption(
   return value || fallback;
 }
 
-function getIntegerOption(
-  options: PromptConfig["options"],
-  key: string,
-  fallback: string,
-): number {
-  return parseInt(getNonEmptyStringOption(options, key, fallback), 10);
-}
-
 function getFormatOption(options: PromptConfig["options"]): WikiFormat {
   const value = options.format;
   return WIKI_FORMATS.includes(value as WikiFormat)
     ? (value as WikiFormat)
     : "standard";
+}
+
+function getDetailLevelOption(options: PromptConfig["options"]): DetailLevel {
+  return (
+    parseDetailLevel(options.detailLevel) ??
+    parseDetailLevel(options["detail-level"]) ??
+    DEFAULT_DETAIL_LEVEL
+  );
 }
