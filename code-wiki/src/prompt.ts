@@ -1,204 +1,21 @@
 /**
- * Prompt builders for maintaining a persistent, LLM-owned codebase wiki.
- *
- * The init prompt still uses the beginner-friendly PocketFlow-style tutorial
- * flow, while update/query prompts treat the wiki as a durable artifact that is
- * incrementally maintained over time.
+ * Pure prompt composers — take a PromptContext and return a prompt string.
+ * No filesystem access, no git calls, no I/O.
  */
 
 import * as path from "node:path";
-import {
-  crawlFiles,
-  profileProjectFiles,
-  type ProjectProfile,
-} from "./crawler";
-import { getChangedFilesSince, getCurrentCommit } from "./repo";
+import type { ProjectProfile } from "./crawler";
+import type { PromptContext } from "./prompt-types";
 import {
   GENERATED_CONTENT_FILES,
   WIKI_ANSWERS_DIR,
-  WIKI_FORMATS,
   WIKI_INDEX_FILE,
   WIKI_LOG_FILE,
   WIKI_METADATA_FILE,
   WIKI_SCHEMA_FILE,
-  type WikiFormat,
 } from "./wiki-layout";
 
-export interface PromptConfig {
-  repoRoot: string;
-  targetDir: string;
-  wikiDir: string;
-  projectName: string;
-  options: Record<string, string | boolean | undefined>;
-  isUpdate?: boolean;
-  previousCommit?: string;
-}
-
-export interface QueryPromptConfig extends PromptConfig {
-  question: string;
-}
-
-interface PromptContext {
-  repoRoot: string;
-  targetDir: string;
-  wikiDir: string;
-  wikiRel: string;
-  projectName: string;
-  language: string;
-  format: WikiFormat;
-  maxSize: number;
-  includePatterns: string[];
-  excludePatterns: string[];
-  fileListStr: string;
-  changedFileListStr: string;
-  commit: string | null;
-  generatedAt: string;
-  generatedDate: string;
-  metadataJson: string;
-  /** Human-readable summary from {@link profileProjectFiles}. */
-  profileSummary: string;
-}
-
-export const DEFAULT_EXCLUDE = [
-  "assets/*",
-  "data/*",
-  "images/*",
-  "public/*",
-  "static/*",
-  "temp/*",
-  "*docs/code-wiki/*",
-  "*.code-wiki/*",
-  "*docs/*",
-  "*venv/*",
-  "*.venv/*",
-  "*test*",
-  "*tests/*",
-  "*examples/*",
-  "v1/*",
-  "*dist/*",
-  "*build/*",
-  "*experimental/*",
-  "*deprecated/*",
-  "*misc/*",
-  "*legacy/*",
-  ".git/*",
-  ".github/*",
-  ".next/*",
-  ".vscode/*",
-  "*obj/*",
-  "*bin/*",
-  "*node_modules/*",
-  "*.log",
-].join(",");
-
-// ── Auto-selection heuristics ────────────────────────────────────────────
-
-/** Extension sets mapped to recognized config files. */
-const CONFIG_EXTENSION_MAP: Record<string, string[]> = {
-  "tsconfig.json": ["*.ts", "*.tsx"],
-  "package.json": ["*.js", "*.jsx", "*.mjs", "*.cjs"],
-  "Cargo.toml": ["*.rs"],
-  "go.mod": ["*.go"],
-  "pyproject.toml": ["*.py", "*.pyi", "*.pyx"],
-  "setup.py": ["*.py", "*.pyi", "*.pyx"],
-  "setup.cfg": ["*.py", "*.pyi", "*.pyx"],
-  "CMakeLists.txt": ["*.c", "*.cc", "*.cpp", "*.h", "*.hpp"],
-  Gemfile: ["*.rb"],
-  "mix.exs": ["*.ex", "*.exs"],
-  "pom.xml": ["*.java", "*.kt", "*.kts"],
-  "build.gradle": ["*.java", "*.kt", "*.kts"],
-  "build.gradle.kts": ["*.java", "*.kt", "*.kts"],
-  "composer.json": ["*.php"],
-};
-
-/** Extensions that are always included (docs and config are universally useful). */
-const ALWAYS_INCLUDE = ["*.md", "*.rst", "*.yaml", "*.yml", "*.toml"];
-
-/** Extensions that should never be auto-selected (binary, asset, lockfiles). */
-const ALWAYS_EXCLUDE_EXTENSIONS = new Set([
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".svg",
-  ".ico",
-  ".webp",
-  ".woff",
-  ".woff2",
-  ".ttf",
-  ".eot",
-  ".lock",
-  ".sum",
-  ".zip",
-  ".tar",
-  ".gz",
-  ".bz2",
-  ".xz",
-  ".pdf",
-  ".doc",
-  ".docx",
-  ".xls",
-  ".xlsx",
-  ".mp3",
-  ".mp4",
-  ".mov",
-  ".avi",
-]);
-
-/**
- * Auto-select include patterns based on a project profile.
- *
- * Heuristic rules (in priority order):
- * 1. Start with extensions from recognized config files.
- * 2. Merge `ALWAYS_INCLUDE` (docs/config).
- * 3. If no config files were recognized, fall back to the top extensions by
- *    count (≥ 5 files, capped at 8) excluding binary/asset extensions.
- * 4. Deduplicate and return as a sorted comma-separated string.
- */
-export function autoSelectPatterns(profile: ProjectProfile): string {
-  const selected = new Set<string>();
-  let hadConfigMatch = false;
-
-  // 1. Config-driven extensions
-  for (const configFile of profile.configFiles) {
-    const exts = CONFIG_EXTENSION_MAP[configFile];
-    if (exts) {
-      hadConfigMatch = true;
-      for (const ext of exts) selected.add(ext);
-    }
-  }
-
-  // 2. Always-include extensions
-  for (const ext of ALWAYS_INCLUDE) selected.add(ext);
-
-  // 3. Fallback: top extensions by count when no config files were recognized
-  if (!hadConfigMatch) {
-    const ranked = Object.entries(profile.extensionCounts)
-      .filter(
-        ([ext]) =>
-          !ALWAYS_EXCLUDE_EXTENSIONS.has(ext.toLowerCase()) &&
-          ext !== "(no extension)",
-      )
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
-
-    for (const [ext] of ranked) {
-      if (profile.extensionCounts[ext] >= 5) {
-        selected.add(`*${ext}`);
-      }
-    }
-  }
-
-  return [...selected].sort().join(",");
-}
-
-/** Backwards-compatible wrapper for older callers. */
-export function buildWikiPrompt(config: PromptConfig): string {
-  return config.isUpdate ? buildUpdatePrompt(config) : buildInitPrompt(config);
-}
-
-export function buildInitPrompt(config: PromptConfig): string {
-  const ctx = buildPromptContext(config, "init");
+export function buildInitPrompt(ctx: PromptContext): string {
   const shouldTranslate = ctx.language !== "english";
   const languageNote = shouldTranslate
     ? `write ALL content (names, descriptions, chapter text, schema prose, and log text) in ${ctx.language}. Only fixed filenames and JSON keys stay in English.`
@@ -210,6 +27,9 @@ export function buildInitPrompt(config: PromptConfig): string {
     ? `- Write ALL chapter content in ${ctx.language}`
     : "";
   const indexLanguage = shouldTranslate ? ctx.language : "English";
+
+  const profileSummary = buildProfileSummary(ctx.profile, ctx.includePatterns);
+  const fileListStr = formatNumberedList(ctx.fileList);
 
   return `## Task: Initialize a Persistent Codebase Wiki
 
@@ -229,13 +49,13 @@ The repository has been profiled and the file listing below was built using auto
 **Project profile:**
 
 \`\`\`
-${ctx.profileSummary}
+${profileSummary}
 \`\`\`
 
 **Filtered file listing (index + relative path):**
 
 \`\`\`
-${ctx.fileListStr}
+${fileListStr}
 \`\`\`
 
 Quickly scan a representative sample of files across different directories to understand the project structure. Focus on files that define core logic, key abstractions, public APIs, command/tool registration, configuration, and data flow.
@@ -329,7 +149,7 @@ Under it, summarize the generated chapters, important source files inspected, an
 After ALL wiki files are written, update the \`generatedFiles\` array and write this JSON to \`${ctx.wikiDir}/${WIKI_METADATA_FILE}\`:
 
 \`\`\`json
-${ctx.metadataJson}
+${buildMetadataJson(ctx, "init")}
 \`\`\`
 
 Before writing, replace the empty \`generatedFiles\` array with the actual list of relative wiki paths you created (for example: \`["${WIKI_INDEX_FILE}", "${WIKI_SCHEMA_FILE}", "${WIKI_LOG_FILE}", "01_foo.md"]\`). Do NOT include \`${WIKI_METADATA_FILE}\` itself in \`generatedFiles\`.
@@ -341,14 +161,16 @@ ${commonRules(ctx)}${formatRules(ctx)}
 - If you cannot complete everything in one turn, continue in the next turn until all files are written.`;
 }
 
-export function buildUpdatePrompt(config: PromptConfig): string {
-  const ctx = buildPromptContext(config, "update");
+export function buildUpdatePrompt(ctx: PromptContext): string {
+  const profileSummary = buildProfileSummary(ctx.profile, ctx.includePatterns);
+  const fileListStr = formatNumberedList(ctx.fileList);
+  const changedFileListStr = formatNumberedList(ctx.changedFiles);
 
   return `## Task: Incrementally Maintain the Codebase Wiki
 
 You will update the existing **${ctx.projectName}** codebase wiki in \`${ctx.wikiRel}/\`. This is an incremental maintenance pass, not a full regeneration.
 
-The previous recorded commit was ${config.previousCommit || "unknown"}. Current HEAD is ${ctx.commit || "unknown"}.
+The previous recorded commit was ${ctx.commit || "unknown"}. Current HEAD is ${ctx.commit || "unknown"}.
 
 ${commonConfiguration(ctx)}
 
@@ -372,17 +194,17 @@ Use the schema as the authority for how this wiki should be maintained. If the s
 Changed files since the previous recorded commit:
 
 \`\`\`
-${ctx.changedFileListStr || "(No changed-file list available; inspect relevant source files from the file map.)"}
+${changedFileListStr || "(No changed-file list available; inspect relevant source files from the file map.)"}
 \`\`\`
 
 Current source file map (auto-detected include patterns):
 
 \`\`\`
-${ctx.profileSummary}
+${profileSummary}
 \`\`\`
 
 \`\`\`
-${ctx.fileListStr}
+${fileListStr}
 \`\`\`
 
 Read changed files first when they are relevant and within scope. Also read any related source files and existing wiki pages needed to understand impact. Do not read or analyze the wiki output directory as source input; read wiki files only to maintain the wiki.
@@ -422,7 +244,7 @@ ${schemaSpecification(ctx)}
 Metadata JSON to write at the end:
 
 \`\`\`json
-${ctx.metadataJson}
+${buildMetadataJson(ctx, "update")}
 \`\`\`
 
 ---
@@ -432,9 +254,10 @@ ${commonRules(ctx)}${formatRules(ctx)}
 - If no source changes affect the wiki, still append a log entry noting that the wiki was checked and refresh metadata.`;
 }
 
-export function buildQueryPrompt(config: QueryPromptConfig): string {
-  const ctx = buildPromptContext(config, "query");
-  const safeQuestion = config.question.trim();
+export function buildQueryPrompt(ctx: PromptContext, question: string): string {
+  const safeQuestion = question.trim();
+  const profileSummary = buildProfileSummary(ctx.profile, ctx.includePatterns);
+  const fileListStr = formatNumberedList(ctx.fileList);
 
   return `## Task: Answer a Codebase Wiki Query and File Useful Results
 
@@ -464,11 +287,11 @@ If there is no existing wiki, say so briefly, then inspect the source file map a
 Current source file map (auto-detected include patterns):
 
 \`\`\`
-${ctx.profileSummary}
+${profileSummary}
 \`\`\`
 
 \`\`\`
-${ctx.fileListStr}
+${fileListStr}
 \`\`\`
 
 Read relevant wiki pages first based on the index. Then read source files needed to verify details. Cite both wiki pages and source file paths where useful; never invent implementation details.
@@ -509,7 +332,7 @@ If the answer is trivial and not worth filing, still append a short log entry ex
 Metadata JSON to write at the end:
 
 \`\`\`json
-${ctx.metadataJson}
+${buildMetadataJson(ctx, "query")}
 \`\`\`
 
 If \`${WIKI_SCHEMA_FILE}\` is missing, create it using this schema specification:
@@ -523,112 +346,7 @@ ${commonRules(ctx)}${formatRules(ctx)}
 - Prefer reading the index/log/schema first, then only the most relevant source files.`;
 }
 
-function buildPromptContext(
-  config: PromptConfig,
-  operation: "init" | "update" | "query",
-): PromptContext {
-  const { repoRoot, targetDir, wikiDir, projectName, options, previousCommit } =
-    config;
-
-  const language = getNonEmptyStringOption(options, "language", "english");
-  const format = getFormatOption(options);
-  const maxSize = getIntegerOption(options, "max-size", "100000");
-  const excludeRaw = getStringOption(options, "exclude", DEFAULT_EXCLUDE);
-
-  // Auto-discover include patterns from the project profile
-  const profile = profileProjectFiles(targetDir);
-  const includeRaw = autoSelectPatterns(profile);
-
-  const includePatterns = parseCsv(includeRaw);
-  const excludePatterns = parseCsv(excludeRaw);
-
-  // Crawl from the target directory for efficiency, then convert to
-  // repo-relative paths so the agent can read files from cwd (repo root).
-  const targetRel = path.relative(repoRoot, targetDir);
-  const fileListing = crawlFiles(
-    targetDir,
-    includePatterns,
-    excludePatterns,
-    maxSize,
-  );
-  const repoRelativeFiles = targetRel
-    ? fileListing.map((f) => path.join(targetRel, f))
-    : fileListing;
-  const fileListStr = formatNumberedList(repoRelativeFiles);
-
-  const wikiRelForSourceFilter = path.relative(repoRoot, wikiDir);
-  const changedFiles = getChangedFilesSince(previousCommit).filter(
-    (file) => !file.startsWith(wikiRelForSourceFilter + path.sep),
-  );
-  // Filter changed files to only include those within the target directory
-  const scopedChangedFiles =
-    targetDir === repoRoot
-      ? changedFiles
-      : changedFiles.filter(
-          (file) => file === targetRel || file.startsWith(targetRel + path.sep),
-        );
-  const changedFileListStr = formatNumberedList(scopedChangedFiles);
-
-  const wikiRel = wikiRelForSourceFilter || "docs/code-wiki";
-  const commit = getCurrentCommit();
-  const generatedAt = new Date().toISOString();
-  const generatedDate = generatedAt.slice(0, 10);
-
-  // Build a human-readable profile summary for the agent
-  const profileSummary = buildProfileSummary(profile, includeRaw);
-
-  const metadataJson = JSON.stringify(
-    {
-      version: "1.1.0",
-      repoRoot,
-      targetDir: targetDir !== repoRoot ? targetDir : undefined,
-      gitCommit: commit,
-      generatedAt,
-      updatedAt: generatedAt,
-      lastOperation: operation,
-      layout: {
-        index: WIKI_INDEX_FILE,
-        log: WIKI_LOG_FILE,
-        schema: WIKI_SCHEMA_FILE,
-        answersDir: WIKI_ANSWERS_DIR,
-      },
-      options: {
-        target:
-          targetDir !== repoRoot
-            ? path.relative(repoRoot, targetDir)
-            : undefined,
-        include: includeRaw,
-        exclude: excludeRaw,
-        language,
-        format,
-        maxSize: String(maxSize),
-      },
-      generatedFiles: [],
-    },
-    null,
-    2,
-  );
-
-  return {
-    repoRoot,
-    targetDir,
-    wikiDir,
-    wikiRel,
-    projectName,
-    language,
-    format,
-    maxSize,
-    includePatterns,
-    excludePatterns,
-    fileListStr,
-    changedFileListStr,
-    commit,
-    generatedAt,
-    generatedDate,
-    metadataJson,
-    profileSummary,
-  };
-}
+// ── Private helpers ───────────────────────────────────────────────────────
 
 function commonConfiguration(ctx: PromptContext): string {
   const targetLine =
@@ -789,50 +507,9 @@ function truncateForLog(value: string): string {
   return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
 }
 
-function getStringOption(
-  options: PromptConfig["options"],
-  key: string,
-  fallback: string,
-): string {
-  const value = options[key];
-  return typeof value === "string" ? value : fallback;
-}
-
-function getNonEmptyStringOption(
-  options: PromptConfig["options"],
-  key: string,
-  fallback: string,
-): string {
-  const value = getStringOption(options, key, fallback);
-  return value || fallback;
-}
-
-function getIntegerOption(
-  options: PromptConfig["options"],
-  key: string,
-  fallback: string,
-): number {
-  return parseInt(getNonEmptyStringOption(options, key, fallback), 10);
-}
-
-function getFormatOption(options: PromptConfig["options"]): WikiFormat {
-  const value = options.format;
-  return WIKI_FORMATS.includes(value as WikiFormat)
-    ? (value as WikiFormat)
-    : "standard";
-}
-
-function parseCsv(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-/** Build a lean human-readable summary from a project profile and selected patterns. */
 function buildProfileSummary(
   profile: ProjectProfile,
-  selectedPatterns: string,
+  includePatterns: string[],
 ): string {
   const top = Object.entries(profile.extensionCounts)
     .sort((a, b) => b[1] - a[1])
@@ -850,6 +527,42 @@ function buildProfileSummary(
     configLine,
     `Top extensions:`,
     top || "  (none)",
-    `\nAuto-selected include patterns: ${selectedPatterns || "(none)"}`,
+    `\nAuto-selected include patterns: ${includePatterns.join(", ") || "(none)"}`,
   ].join("\n");
+}
+
+function buildMetadataJson(ctx: PromptContext, operation: string): string {
+  const targetRel =
+    ctx.targetDir !== ctx.repoRoot
+      ? path.relative(ctx.repoRoot, ctx.targetDir)
+      : undefined;
+
+  return JSON.stringify(
+    {
+      version: "1.1.0",
+      repoRoot: ctx.repoRoot,
+      targetDir: ctx.targetDir !== ctx.repoRoot ? ctx.targetDir : undefined,
+      gitCommit: ctx.commit,
+      generatedAt: ctx.generatedAt,
+      updatedAt: ctx.generatedAt,
+      lastOperation: operation,
+      layout: {
+        index: WIKI_INDEX_FILE,
+        log: WIKI_LOG_FILE,
+        schema: WIKI_SCHEMA_FILE,
+        answersDir: WIKI_ANSWERS_DIR,
+      },
+      options: {
+        target: targetRel,
+        include: ctx.includePatterns.join(","),
+        exclude: ctx.excludePatterns.join(","),
+        language: ctx.language,
+        format: ctx.format,
+        maxSize: String(ctx.maxSize),
+      },
+      generatedFiles: [],
+    },
+    null,
+    2,
+  );
 }

@@ -16,10 +16,11 @@ import { matchesAny } from "./src/crawler";
 import { readMetadata } from "./src/metadata";
 import {
   buildInitPrompt,
-  buildQueryPrompt,
   buildUpdatePrompt,
-  DEFAULT_EXCLUDE,
+  buildQueryPrompt,
 } from "./src/prompt";
+import { resolvePromptContext } from "./src/prompt-context";
+import { DEFAULT_EXCLUDE } from "./src/prompt-types";
 import { getRepoRoot, isPathInsideRepo } from "./src/repo";
 import {
   mergeCodeWikiSettings,
@@ -344,13 +345,14 @@ async function handleWikiAction(
     }
 
     ctx.ui.notify(`Generating codebase wiki into ${output} ...`, "info");
-    const prompt = buildInitPrompt({
+    const promptCtx = resolvePromptContext({
       repoRoot,
       targetDir,
       wikiDir,
       projectName,
       options,
     });
+    const prompt = buildInitPrompt(promptCtx);
 
     setReadGuard({
       repoRoot,
@@ -374,7 +376,7 @@ async function handleWikiAction(
 
   if (action === "update") {
     ctx.ui.notify(`Incrementally updating wiki at ${output} ...`, "info");
-    const prompt = buildUpdatePrompt({
+    const promptCtx = resolvePromptContext({
       repoRoot,
       targetDir,
       wikiDir,
@@ -382,6 +384,7 @@ async function handleWikiAction(
       options: mergedOptions,
       previousCommit: existingMeta?.gitCommit ?? undefined,
     });
+    const prompt = buildUpdatePrompt(promptCtx);
 
     setReadGuard({
       repoRoot,
@@ -395,15 +398,15 @@ async function handleWikiAction(
   }
 
   ctx.ui.notify(`Querying codebase wiki at ${output} ...`, "info");
-  const prompt = buildQueryPrompt({
+  const promptCtx = resolvePromptContext({
     repoRoot,
     targetDir,
     wikiDir,
     projectName,
     options: mergedOptions,
     previousCommit: existingMeta?.gitCommit ?? undefined,
-    question,
   });
+  const prompt = buildQueryPrompt(promptCtx, question);
 
   setReadGuard({
     repoRoot,
