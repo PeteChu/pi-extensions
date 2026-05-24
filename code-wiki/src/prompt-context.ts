@@ -15,6 +15,7 @@ import {
   type PromptContext,
 } from "./prompt-types";
 import { getChangedFilesSince, getCurrentCommit } from "./repo";
+import { splitPatterns } from "./utils";
 import { WIKI_FORMATS, type WikiFormat } from "./wiki-layout";
 
 /**
@@ -35,8 +36,8 @@ export function resolvePromptContext(config: PromptConfig): PromptContext {
   const profile = profileProjectFiles(targetDir);
   const includeRaw = autoSelectPatterns(profile);
 
-  const includePatterns = parseCsv(includeRaw);
-  const excludePatterns = parseCsv(excludeRaw);
+  const includePatterns = splitPatterns(includeRaw);
+  const excludePatterns = splitPatterns(excludeRaw);
 
   // Crawl from the target directory, then convert to repo-relative paths
   const targetRel = path.relative(repoRoot, targetDir);
@@ -224,11 +225,4 @@ function getFormatOption(options: PromptConfig["options"]): WikiFormat {
   return WIKI_FORMATS.includes(value as WikiFormat)
     ? (value as WikiFormat)
     : "standard";
-}
-
-function parseCsv(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 }

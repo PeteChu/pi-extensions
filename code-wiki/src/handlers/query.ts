@@ -2,6 +2,8 @@ import * as path from "node:path";
 import { readMetadata } from "../metadata";
 import { buildQueryPrompt } from "../prompt";
 import { resolvePromptContext } from "../prompt-context";
+import { DEFAULT_EXCLUDE } from "../prompt-types";
+import { splitPatterns } from "../utils";
 import { WIKI_METADATA_FILE } from "../wiki-layout";
 import type { WikiActionHandler } from "./types";
 
@@ -42,10 +44,10 @@ export const queryHandler: WikiActionHandler = {
       targetDir,
       wikiDir,
       allowWikiReads: true,
-      excludePatterns: guard.parseExcludePatterns(
+      excludePatterns: splitPatterns(
         typeof mergedOptions.exclude === "string"
           ? mergedOptions.exclude
-          : undefined,
+          : DEFAULT_EXCLUDE,
       ),
     });
     pi.sendUserMessage(prompt);

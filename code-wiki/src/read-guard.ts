@@ -36,15 +36,11 @@ export interface ReadGuard {
     requestedPath: string,
     cwd: string,
   ): { block: true; reason: string } | undefined;
-  parseExcludePatterns(exclude?: string): string[];
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────
 
-export function createReadGuard(
-  matcher: Matcher,
-  defaultExclude: string,
-): ReadGuard {
+export function createReadGuard(matcher: Matcher): ReadGuard {
   let state: ReadGuardState | undefined;
 
   return {
@@ -106,12 +102,6 @@ export function createReadGuard(
       return undefined;
     },
 
-    parseExcludePatterns(exclude?: string): string[] {
-      const raw = exclude || defaultExclude;
-      return raw
-        .split(",")
-        .map((p) => p.trim())
-        .filter(Boolean);
-    },
+
   };
 }

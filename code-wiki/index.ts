@@ -6,11 +6,10 @@ import { parseArgs } from "./src/args";
 import { dispatch } from "./src/dispatch";
 import { matchesAny } from "./src/glob";
 import { type WikiOptions, isWikiAction } from "./src/handlers/types";
-import { DEFAULT_EXCLUDE } from "./src/prompt-types";
 import { createReadGuard } from "./src/read-guard";
 import { WIKI_FORMATS } from "./src/wiki-layout";
 
-const guard = createReadGuard(matchesAny, DEFAULT_EXCLUDE);
+const guard = createReadGuard(matchesAny);
 
 // ── Extension registration ────────────────────────────────────────────────
 

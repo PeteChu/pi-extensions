@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import { getFormatAdapter } from "../obsidian";
 import { buildInitPrompt } from "../prompt";
 import { resolvePromptContext } from "../prompt-context";
+import { DEFAULT_EXCLUDE } from "../prompt-types";
+import { splitPatterns } from "../utils";
 import type { WikiActionHandler } from "./types";
 import { getWikiFormatOption } from "./types";
 
@@ -47,8 +49,8 @@ export const initHandler: WikiActionHandler = {
       targetDir,
       wikiDir,
       allowWikiReads: false,
-      excludePatterns: guard.parseExcludePatterns(
-        typeof options.exclude === "string" ? options.exclude : undefined,
+      excludePatterns: splitPatterns(
+        typeof options.exclude === "string" ? options.exclude : DEFAULT_EXCLUDE,
       ),
     });
     pi.sendUserMessage(prompt);
