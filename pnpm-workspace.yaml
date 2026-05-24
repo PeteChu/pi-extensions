@@ -1,5 +1,6 @@
 packages:
-  - 'ai-commit'
-  - 'answer'
-  - 'extension-toggle'
-  - 'package-usage'
+  - "ai-commit"
+  - "answer"
+  - "extension-toggle"
+  - "package-usage"
+  - "code-wiki"

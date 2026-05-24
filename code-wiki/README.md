@@ -1,8 +1,15 @@
-# code-wiki — Pi Extension
+# Code Wiki
 
 Generate and maintain a persistent, beginner-friendly codebase wiki inside your repository. The extension guides Pi's agent to build Markdown documentation, keep it current incrementally, and file substantial answers from codebase questions back into the wiki.
 
 The design is inspired by Karpathy's LLM Wiki pattern: the wiki is a durable, compounding artifact (`index.md` + pages + `log.md` + schema), not a throwaway answer or full regeneration on every run.
+
+## Install
+
+```bash
+pi install npm:@petechu/pi-code-wiki
+/reload
+```
 
 ## How It Works
 
@@ -13,18 +20,6 @@ The extension sends focused prompts to Pi's agent for three maintenance operatio
 3. **Query** — answer a codebase question using the wiki first and source files as needed; file substantial answers under `answers/` so future work compounds.
 
 Everything runs through Pi's native tools — no Python, no external LLM calls, no GitHub crawling.
-
-## Installation
-
-Place the `code-wiki` directory in `~/.pi/agent/extensions/`:
-
-```bash
-cp -r code-wiki ~/.pi/agent/extensions/
-```
-
-Then reload Pi: `/reload`
-
-No additional dependencies — the extension uses only Node.js built-ins and Pi's APIs.
 
 ## Usage
 
@@ -230,22 +225,6 @@ The enforcement is a safety net, not a replacement for prompt guidance. The agen
 | "Target directory does not exist" | Ensure the path exists relative to the repo root, e.g. `--target=packages/backend`   |
 | Doctor reports missing schema/log | Run `/code-wiki update`; the prompt will recreate missing control files              |
 | Obsidian vault not recognized     | Copy the `obsidian://open?...` URI from the init output to open in Obsidian manually |
-
-## Files
-
-```text
-code-wiki/
-├── index.ts              # Extension entry point (command + tool registration)
-├── src/
-│   ├── args.ts           # Argument parsing (subcommands, flags, query text)
-│   ├── repo.ts           # Git root, commit, and changed-file helpers
-│   ├── crawler.ts        # Local file listing (paths only, respects .gitignore)
-│   ├── prompt.ts         # Prompt builders for init, incremental update, query
-│   ├── metadata.ts       # .code-wiki.json reader/types
-│   ├── wiki-layout.ts    # Shared generated wiki filenames/layout constants
-│   └── settings.ts       # Model preference settings and defaults
-└── README.md
-```
 
 ## Acknowledgement & Inspiration
 

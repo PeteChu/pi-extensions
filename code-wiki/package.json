@@ -1,0 +1,24 @@
+{
+  "name": "@petechu/pi-code-wiki",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Generate and maintain a persistent, compounding codebase wiki inside your repository",
+  "homepage": "https://github.com/PeteChu/pi-extensions",
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
+  "scripts": {
+    "test": "node --import tsx --test ./tests/prompt.test.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
