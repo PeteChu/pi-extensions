@@ -51,6 +51,7 @@ Both forms are supported:
 
 | Option                          | Description                                   | Default                      |
 | ------------------------------- | --------------------------------------------- | ---------------------------- |
+| `--target=<path>`               | Target subdirectory (narrows scope)           | Repo root                    |
 | `--output=<path>`               | Wiki output directory (relative to repo root) | `docs/code-wiki`             |
 | `--include=<glob,...>`          | File patterns to include                      | `*.py,*.js,*.ts,...`         |
 | `--exclude=<glob,...>`          | File patterns to exclude (strictly enforced)  | tests, deps, build artifacts |
@@ -59,6 +60,23 @@ Both forms are supported:
 | `--max-size=<bytes>`            | Maximum file size in bytes                    | `100000`                     |
 | `--question=<text>`             | Question for `query`                          | none                         |
 | `--force`                       | Overwrite existing wiki (init only)           | Prompt before overwrite      |
+
+### Target Directory (Monorepo Support)
+
+Use `--target=<subdirectory>` to narrow the wiki scope to a specific subdirectory within a monorepo:
+
+```bash
+/code-wiki init --target=packages/backend
+/code-wiki init --target=packages/frontend --output=docs/frontend-wiki
+```
+
+When `--target` is set:
+
+- Only files **within** that subdirectory are crawled and analyzed.
+- The **project name** in the wiki uses the target directory's basename (e.g., `backend`).
+- The **default output** path becomes `docs/code-wiki/<target-basename>` (e.g., `docs/code-wiki/backend`).
+- The **read guard** blocks the agent from reading files outside the target directory.
+- Omit `--target` to use the full repo root (default behavior, unchanged).
 
 ## Generated Wiki Layout
 
@@ -165,8 +183,26 @@ Use code_wiki with action="init" to generate a codebase wiki
 Use code_wiki with action="update" to incrementally maintain the wiki
 Use code_wiki with action="query" and question="..." to answer and file useful results
 Use code_wiki with action="doctor" to check the wiki status
+Pass target="packages/backend" to narrow scope to a subdirectory
 Pass format="obsidian" to initialize or maintain an Obsidian-ready vault
 ```
+
+### Custom Tool Parameters
+
+The `code_wiki` tool accepts all the same parameters as the `/code-wiki` command, including:
+
+| Parameter  | Type               | Description                            |
+| ---------- | ------------------ | -------------------------------------- |
+| `action`   | string             | `init`, `update`, `query`, or `doctor` |
+| `target`   | string (optional)  | Subdirectory to scope the wiki to      |
+| `output`   | string (optional)  | Wiki directory path                    |
+| `language` | string (optional)  | Output language                        |
+| `format`   | string (optional)  | `standard` or `obsidian`               |
+| `include`  | string (optional)  | Comma-separated include patterns       |
+| `exclude`  | string (optional)  | Comma-separated exclude patterns       |
+| `question` | string (optional)  | Question for `query`                   |
+| `max_size` | number (optional)  | Max file size in bytes                 |
+| `force`    | boolean (optional) | Overwrite existing wiki on init        |
 
 ## Strict Exclude Enforcement
 
@@ -174,7 +210,8 @@ During any code-wiki operation (`init`, `update`, `query`), the extension interc
 
 **Behavior:**
 
-- **Blocked:** Any file matching an `--exclude` pattern is blocked with an error: `Blocked by code-wiki exclude pattern: <path>`.
+- **Blocked (exclude):** Any file matching an `--exclude` pattern is blocked with an error: `Blocked by code-wiki exclude pattern: <path>`.
+- **Blocked (target scope):** When `--target=<path>` is set, any file outside the target directory is blocked with an error: `Blocked by code-wiki target scope: ...`.
 - **Allowed:** Wiki artifact files inside the output directory are still readable during `update` and `query` operations (e.g., `index.md`, `log.md`, chapter pages, schema, metadata).
 - **Normal reads unaffected:** When no code-wiki operation is active, the `read` tool works normally without any restrictions.
 - **Defaults applied:** If no `--exclude` is specified, the built-in defaults are used (test directories, build artifacts, `node_modules`, `.git`/`.github`, wiki output, etc.).
@@ -190,6 +227,7 @@ The enforcement is a safety net, not a replacement for prompt guidance. The agen
 | Query requires a question         | Use `--question="..."` or positional text after `/code-wiki query`                   |
 | Agent doesn't write all files     | The prompt may span multiple turns — the agent will continue until complete          |
 | Wiki includes its own output      | The prompt explicitly excludes the wiki directory from source analysis               |
+| "Target directory does not exist" | Ensure the path exists relative to the repo root, e.g. `--target=packages/backend`   |
 | Doctor reports missing schema/log | Run `/code-wiki update`; the prompt will recreate missing control files              |
 | Obsidian vault not recognized     | Copy the `obsidian://open?...` URI from the init output to open in Obsidian manually |
 

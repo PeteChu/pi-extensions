@@ -22,6 +22,7 @@ import {
 
 export interface PromptConfig {
   repoRoot: string;
+  targetDir: string;
   wikiDir: string;
   projectName: string;
   options: Record<string, string | boolean | undefined>;
@@ -35,6 +36,7 @@ export interface QueryPromptConfig extends PromptConfig {
 
 interface PromptContext {
   repoRoot: string;
+  targetDir: string;
   wikiDir: string;
   wikiRel: string;
   projectName: string;
@@ -424,7 +426,8 @@ function buildPromptContext(
   config: PromptConfig,
   operation: "init" | "update" | "query",
 ): PromptContext {
-  const { repoRoot, wikiDir, projectName, options, previousCommit } = config;
+  const { repoRoot, targetDir, wikiDir, projectName, options, previousCommit } =
+    config;
 
   const language = getNonEmptyStringOption(options, "language", "english");
   const format = getFormatOption(options);
@@ -435,19 +438,32 @@ function buildPromptContext(
   const includePatterns = parseCsv(includeRaw);
   const excludePatterns = parseCsv(excludeRaw);
 
+  // Crawl from the target directory for efficiency, then convert to
+  // repo-relative paths so the agent can read files from cwd (repo root).
+  const targetRel = path.relative(repoRoot, targetDir);
   const fileListing = crawlFiles(
-    repoRoot,
+    targetDir,
     includePatterns,
     excludePatterns,
     maxSize,
   );
-  const fileListStr = formatNumberedList(fileListing);
+  const repoRelativeFiles = targetRel
+    ? fileListing.map((f) => path.join(targetRel, f))
+    : fileListing;
+  const fileListStr = formatNumberedList(repoRelativeFiles);
 
   const wikiRelForSourceFilter = path.relative(repoRoot, wikiDir);
   const changedFiles = getChangedFilesSince(previousCommit).filter(
     (file) => !file.startsWith(wikiRelForSourceFilter + path.sep),
   );
-  const changedFileListStr = formatNumberedList(changedFiles);
+  // Filter changed files to only include those within the target directory
+  const scopedChangedFiles =
+    targetDir === repoRoot
+      ? changedFiles
+      : changedFiles.filter(
+          (file) => file === targetRel || file.startsWith(targetRel + path.sep),
+        );
+  const changedFileListStr = formatNumberedList(scopedChangedFiles);
 
   const wikiRel = wikiRelForSourceFilter || "docs/code-wiki";
   const commit = getCurrentCommit();
@@ -458,6 +474,7 @@ function buildPromptContext(
     {
       version: "1.1.0",
       repoRoot,
+      targetDir: targetDir !== repoRoot ? targetDir : undefined,
       gitCommit: commit,
       generatedAt,
       updatedAt: generatedAt,
@@ -469,6 +486,10 @@ function buildPromptContext(
         answersDir: WIKI_ANSWERS_DIR,
       },
       options: {
+        target:
+          targetDir !== repoRoot
+            ? path.relative(repoRoot, targetDir)
+            : undefined,
         include: includeRaw,
         exclude: excludeRaw,
         language,
@@ -483,6 +504,7 @@ function buildPromptContext(
 
   return {
     repoRoot,
+    targetDir,
     wikiDir,
     wikiRel,
     projectName,
@@ -501,9 +523,13 @@ function buildPromptContext(
 }
 
 function commonConfiguration(ctx: PromptContext): string {
+  const targetLine =
+    ctx.targetDir !== ctx.repoRoot
+      ? `\n- **Target directory**: ${ctx.targetDir}`
+      : "";
   return `### Configuration
 - **Project**: ${ctx.projectName}
-- **Repo root**: ${ctx.repoRoot}
+- **Repo root**: ${ctx.repoRoot}${targetLine}
 - **Wiki output directory**: ${ctx.wikiDir} (create it if needed)
 - **Language**: ${ctx.language}
 - **Max file size**: ${ctx.maxSize} bytes (skip larger files)
@@ -631,10 +657,14 @@ You are writing for an Obsidian vault. Follow these rules for every generated, u
 }
 
 function commonRules(ctx: PromptContext): string {
+  const targetRule =
+    ctx.targetDir !== ctx.repoRoot
+      ? `\n- **Target scope is enforced.** The extension blocks \`read\` tool calls for files outside the target directory (\`${ctx.targetDir}\`).`
+      : "";
   return `### Important Rules
 
 - **Read actual files** — do not guess or hallucinate code behavior. Use the read tool with file indices or paths.
-- **Excluded patterns are strictly enforced.** The extension blocks \`read\` tool calls matching any exclude pattern. If a read is blocked, the file is excluded — do not try to bypass this.
+- **Excluded patterns are strictly enforced.** The extension blocks \`read\` tool calls matching any exclude pattern. If a read is blocked, the file is excluded — do not try to bypass this.${targetRule}
 - **Never include the wiki output directory (\`${ctx.wikiRel}/\`) as source analysis input.** It must not feed back into source discovery.
 - **It is OK to read and edit files inside \`${ctx.wikiRel}/\` only as wiki artifacts.**
 - **Keep generated file paths relative to the wiki directory in metadata.**

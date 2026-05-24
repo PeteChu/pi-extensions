@@ -46,6 +46,8 @@ type WikiOptions = Record<string, string | boolean | undefined>;
 interface ReadGuardState {
   /** Absolute path to the repository root */
   repoRoot: string;
+  /** Absolute path to the target directory (narrowed scope) */
+  targetDir: string;
   /** Absolute path to the wiki output directory */
   wikiDir: string;
   /** Current code-wiki action */
@@ -235,10 +237,39 @@ async function handleWikiAction(
     return;
   }
 
+  // ── Resolve target directory (narrows file crawling scope) ──
+  const targetOption =
+    typeof options.target === "string" && options.target ? options.target : "";
+  let targetDir: string;
+  let targetBasename: string;
+  if (targetOption) {
+    targetDir = path.resolve(repoRoot, targetOption);
+    if (!isPathInsideRepo(targetDir, repoRoot)) {
+      ctx.ui.notify(
+        `Target directory "${targetOption}" resolves outside the Git repository root`,
+        "error",
+      );
+      return;
+    }
+    if (!fs.existsSync(targetDir)) {
+      ctx.ui.notify(
+        `Target directory "${targetOption}" does not exist`,
+        "error",
+      );
+      return;
+    }
+    targetBasename = path.basename(targetDir);
+  } else {
+    targetDir = repoRoot;
+    targetBasename = path.basename(repoRoot);
+  }
+
   const output =
     typeof options.output === "string" && options.output
       ? options.output
-      : DEFAULT_OUTPUT;
+      : targetOption
+        ? `docs/code-wiki/${targetBasename}`
+        : DEFAULT_OUTPUT;
   const wikiDir = path.resolve(repoRoot, output);
 
   if (!isPathInsideRepo(wikiDir, repoRoot)) {
@@ -249,10 +280,10 @@ async function handleWikiAction(
     return;
   }
 
-  const projectName = path.basename(repoRoot);
+  const projectName = targetBasename;
 
   if (action === "doctor") {
-    runDoctorCheck(ctx, repoRoot, wikiDir, options);
+    runDoctorCheck(ctx, repoRoot, targetDir, wikiDir, options);
     return;
   }
 
@@ -316,6 +347,7 @@ async function handleWikiAction(
     ctx.ui.notify(`Generating codebase wiki into ${output} ...`, "info");
     const prompt = buildInitPrompt({
       repoRoot,
+      targetDir,
       wikiDir,
       projectName,
       options,
@@ -323,6 +355,7 @@ async function handleWikiAction(
 
     setReadGuard({
       repoRoot,
+      targetDir,
       wikiDir,
       action,
       excludePatterns: parseExcludePatterns(options),
@@ -344,6 +377,7 @@ async function handleWikiAction(
     ctx.ui.notify(`Incrementally updating wiki at ${output} ...`, "info");
     const prompt = buildUpdatePrompt({
       repoRoot,
+      targetDir,
       wikiDir,
       projectName,
       options: mergedOptions,
@@ -352,6 +386,7 @@ async function handleWikiAction(
 
     setReadGuard({
       repoRoot,
+      targetDir,
       wikiDir,
       action,
       excludePatterns: parseExcludePatterns(mergedOptions),
@@ -363,6 +398,7 @@ async function handleWikiAction(
   ctx.ui.notify(`Querying codebase wiki at ${output} ...`, "info");
   const prompt = buildQueryPrompt({
     repoRoot,
+    targetDir,
     wikiDir,
     projectName,
     options: mergedOptions,
@@ -372,6 +408,7 @@ async function handleWikiAction(
 
   setReadGuard({
     repoRoot,
+    targetDir,
     wikiDir,
     action,
     excludePatterns: parseExcludePatterns(mergedOptions),
@@ -387,6 +424,7 @@ function getQuestion(options: WikiOptions): string {
 function runDoctorCheck(
   ctx: ExtensionContext,
   repoRoot: string,
+  targetDir: string,
   wikiDir: string,
   options: WikiOptions,
 ): void {
@@ -394,6 +432,10 @@ function runDoctorCheck(
   const wikiRel = path.relative(repoRoot, wikiDir) || DEFAULT_OUTPUT;
 
   checks.push(`✓ Git repo: ${repoRoot}`);
+
+  if (targetDir !== repoRoot) {
+    checks.push(`✓ Target directory: ${targetDir}`);
+  }
 
   const requestedFormat = getWikiFormatOption(options.format);
 
@@ -428,6 +470,9 @@ function runDoctorCheck(
     checks.push(`✓ ${WIKI_METADATA_FILE}`);
     checks.push(`  generated files: ${meta?.generatedFiles?.length ?? 0}`);
     checks.push(`  format: ${storedFormat}`);
+    if (meta?.options?.target) {
+      checks.push(`  target: ${meta.options.target}`);
+    }
     if (requestedFormat && requestedFormat !== storedFormat) {
       checks.push(`  requested format: ${requestedFormat}`);
     }
@@ -499,6 +544,7 @@ export default function (pi: ExtensionAPI) {
             "  query    - Answer a question and file substantial results\n" +
             "  doctor   - Check setup\n" +
             "\nOptions:\n" +
+            "  --target=<path>        Target subdirectory (narrows scope, default: repo root)\n" +
             "  --output=<path>        Wiki directory (default: docs/code-wiki)\n" +
             "  --include=<glob,...>   File patterns to include\n" +
             "  --exclude=<glob,...>   File patterns to exclude\n" +
@@ -508,6 +554,7 @@ export default function (pi: ExtensionAPI) {
             "  --question=<text>      Question for query action\n" +
             "  --force                Overwrite existing wiki (init only)\n" +
             "\nExamples:\n" +
+            "  /code-wiki init --target=packages/backend\n" +
             '  /code-wiki query --question="How does model selection work?"\n' +
             '  /code-wiki query "How does model selection work?"',
           "info",
@@ -528,12 +575,13 @@ export default function (pi: ExtensionAPI) {
     clearReadGuard();
   });
 
-  // ── Enforce exclude patterns on built-in `read` tool ──
+  // ── Enforce target directory and exclude patterns on built-in `read` tool ──
   pi.on("tool_call", async (event, ctx) => {
     if (!isToolCallEventType("read", event)) return;
     if (!readGuardState) return;
 
-    const { repoRoot, wikiDir, action, excludePatterns } = readGuardState;
+    const { repoRoot, targetDir, wikiDir, action, excludePatterns } =
+      readGuardState;
     const requestedPath = event.input.path;
 
     // Resolve to an absolute path (relative paths are relative to cwd)
@@ -552,6 +600,15 @@ export default function (pi: ExtensionAPI) {
       if (relPath === wikiRel || relPath.startsWith(wikiRel + path.sep)) {
         return; // allowed — wiki artifact
       }
+    }
+
+    // Block reads outside the target directory (narrowed scope)
+    const targetRel = path.relative(targetDir, resolved);
+    if (targetRel.startsWith("..") || path.isAbsolute(targetRel)) {
+      return {
+        block: true,
+        reason: `Blocked by code-wiki target scope: "${relPath}" is outside the target directory`,
+      };
     }
 
     // Check exclude patterns
@@ -580,9 +637,17 @@ export default function (pi: ExtensionAPI) {
       "Use code_wiki with action='query' when the user asks a codebase question that should " +
         "be answered from the wiki/source and potentially filed back into the wiki.",
       "Use code_wiki with action='doctor' when the user asks to check the wiki setup.",
+      "Use the target parameter to narrow scope to a subdirectory (e.g., 'packages/backend') " +
+        "in monorepos, instead of the full repo root.",
     ],
     parameters: Type.Object({
       action: StringEnum(["init", "update", "query", "doctor"] as const),
+      target: Type.Optional(
+        Type.String({
+          description:
+            "Target subdirectory within the repo (e.g., 'packages/backend'). Defaults to repo root.",
+        }),
+      ),
       output: Type.Optional(
         Type.String({
           description: "Wiki directory path (default: docs/code-wiki)",
@@ -624,6 +689,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const options: WikiOptions = {};
+      if (params.target) options.target = params.target;
       if (params.output) options.output = params.output;
       if (params.language) options.language = params.language;
       if (params.format) options.format = params.format;
