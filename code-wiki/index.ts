@@ -11,8 +11,8 @@ import * as fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import * as path from "node:path";
 import { Type } from "typebox";
-import { matchesAny } from "./src/crawler";
 import { parseArgs } from "./src/args";
+import { matchesAny } from "./src/crawler";
 import { readMetadata } from "./src/metadata";
 import {
   buildInitPrompt,
@@ -75,15 +75,12 @@ function clearReadGuard(): void {
  * Falls back to the same DEFAULT_EXCLUDE as the prompt builder when not explicitly set.
  */
 function parseExcludePatterns(options: WikiOptions): string[] {
-  const raw = options.exclude;
-  if (typeof raw === "string" && raw) {
-    return raw
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean);
-  }
-  // Use the same default exclude list as the prompt builder
-  return DEFAULT_EXCLUDE.split(",")
+  const raw =
+    typeof options.exclude === "string" && options.exclude
+      ? options.exclude
+      : DEFAULT_EXCLUDE;
+  return raw
+    .split(",")
     .map((p) => p.trim())
     .filter(Boolean);
 }
@@ -264,12 +261,14 @@ async function handleWikiAction(
     targetBasename = path.basename(repoRoot);
   }
 
-  const output =
-    typeof options.output === "string" && options.output
-      ? options.output
-      : targetOption
-        ? `docs/code-wiki/${targetBasename}`
-        : DEFAULT_OUTPUT;
+  let output: string;
+  if (typeof options.output === "string" && options.output) {
+    output = options.output;
+  } else if (targetOption) {
+    output = `docs/code-wiki/${targetBasename}`;
+  } else {
+    output = DEFAULT_OUTPUT;
+  }
   const wikiDir = path.resolve(repoRoot, output);
 
   if (!isPathInsideRepo(wikiDir, repoRoot)) {
@@ -546,7 +545,6 @@ export default function (pi: ExtensionAPI) {
             "\nOptions:\n" +
             "  --target=<path>        Target subdirectory (narrows scope, default: repo root)\n" +
             "  --output=<path>        Wiki directory (default: docs/code-wiki)\n" +
-            "  --include=<glob,...>   File patterns to include\n" +
             "  --exclude=<glob,...>   File patterns to exclude\n" +
             "  --language=<lang>      Output language (default: english)\n" +
             "  --format=<standard|obsidian> Output Markdown format (default: standard)\n" +
@@ -661,12 +659,6 @@ export default function (pi: ExtensionAPI) {
           description: "Output Markdown format (default: standard)",
         }),
       ),
-      include: Type.Optional(
-        Type.String({
-          description:
-            "Comma-separated file patterns to include (e.g., '*.py,*.ts')",
-        }),
-      ),
       exclude: Type.Optional(
         Type.String({
           description:
@@ -693,7 +685,6 @@ export default function (pi: ExtensionAPI) {
       if (params.output) options.output = params.output;
       if (params.language) options.language = params.language;
       if (params.format) options.format = params.format;
-      if (params.include) options.include = params.include;
       if (params.exclude) options.exclude = params.exclude;
       if (params.question) options.question = params.question;
       if (params.max_size != null)

@@ -7,7 +7,11 @@
  */
 
 import * as path from "node:path";
-import { crawlFiles } from "./crawler";
+import {
+  crawlFiles,
+  profileProjectFiles,
+  type ProjectProfile,
+} from "./crawler";
 import { getChangedFilesSince, getCurrentCommit } from "./repo";
 import {
   GENERATED_CONTENT_FILES,
@@ -51,29 +55,9 @@ interface PromptContext {
   generatedAt: string;
   generatedDate: string;
   metadataJson: string;
+  /** Human-readable summary from {@link profileProjectFiles}. */
+  profileSummary: string;
 }
-
-const DEFAULT_INCLUDE = [
-  "*.py",
-  "*.js",
-  "*.jsx",
-  "*.ts",
-  "*.tsx",
-  "*.go",
-  "*.java",
-  "*.pyi",
-  "*.pyx",
-  "*.c",
-  "*.cc",
-  "*.cpp",
-  "*.h",
-  "*.md",
-  "*.rst",
-  "*Dockerfile",
-  "*Makefile",
-  "*.yaml",
-  "*.yml",
-].join(",");
 
 export const DEFAULT_EXCLUDE = [
   "assets/*",
@@ -107,6 +91,107 @@ export const DEFAULT_EXCLUDE = [
   "*.log",
 ].join(",");
 
+// ── Auto-selection heuristics ────────────────────────────────────────────
+
+/** Extension sets mapped to recognized config files. */
+const CONFIG_EXTENSION_MAP: Record<string, string[]> = {
+  "tsconfig.json": ["*.ts", "*.tsx"],
+  "package.json": ["*.js", "*.jsx", "*.mjs", "*.cjs"],
+  "Cargo.toml": ["*.rs"],
+  "go.mod": ["*.go"],
+  "pyproject.toml": ["*.py", "*.pyi", "*.pyx"],
+  "setup.py": ["*.py", "*.pyi", "*.pyx"],
+  "setup.cfg": ["*.py", "*.pyi", "*.pyx"],
+  "CMakeLists.txt": ["*.c", "*.cc", "*.cpp", "*.h", "*.hpp"],
+  Gemfile: ["*.rb"],
+  "mix.exs": ["*.ex", "*.exs"],
+  "pom.xml": ["*.java", "*.kt", "*.kts"],
+  "build.gradle": ["*.java", "*.kt", "*.kts"],
+  "build.gradle.kts": ["*.java", "*.kt", "*.kts"],
+  "composer.json": ["*.php"],
+};
+
+/** Extensions that are always included (docs and config are universally useful). */
+const ALWAYS_INCLUDE = ["*.md", "*.rst", "*.yaml", "*.yml", "*.toml"];
+
+/** Extensions that should never be auto-selected (binary, asset, lockfiles). */
+const ALWAYS_EXCLUDE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".svg",
+  ".ico",
+  ".webp",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".eot",
+  ".lock",
+  ".sum",
+  ".zip",
+  ".tar",
+  ".gz",
+  ".bz2",
+  ".xz",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".mp3",
+  ".mp4",
+  ".mov",
+  ".avi",
+]);
+
+/**
+ * Auto-select include patterns based on a project profile.
+ *
+ * Heuristic rules (in priority order):
+ * 1. Start with extensions from recognized config files.
+ * 2. Merge `ALWAYS_INCLUDE` (docs/config).
+ * 3. If no config files were recognized, fall back to the top extensions by
+ *    count (≥ 5 files, capped at 8) excluding binary/asset extensions.
+ * 4. Deduplicate and return as a sorted comma-separated string.
+ */
+export function autoSelectPatterns(profile: ProjectProfile): string {
+  const selected = new Set<string>();
+  let hadConfigMatch = false;
+
+  // 1. Config-driven extensions
+  for (const configFile of profile.configFiles) {
+    const exts = CONFIG_EXTENSION_MAP[configFile];
+    if (exts) {
+      hadConfigMatch = true;
+      for (const ext of exts) selected.add(ext);
+    }
+  }
+
+  // 2. Always-include extensions
+  for (const ext of ALWAYS_INCLUDE) selected.add(ext);
+
+  // 3. Fallback: top extensions by count when no config files were recognized
+  if (!hadConfigMatch) {
+    const ranked = Object.entries(profile.extensionCounts)
+      .filter(
+        ([ext]) =>
+          !ALWAYS_EXCLUDE_EXTENSIONS.has(ext.toLowerCase()) &&
+          ext !== "(no extension)",
+      )
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+
+    for (const [ext] of ranked) {
+      if (profile.extensionCounts[ext] >= 5) {
+        selected.add(`*${ext}`);
+      }
+    }
+  }
+
+  return [...selected].sort().join(",");
+}
+
 /** Backwards-compatible wrapper for older callers. */
 export function buildWikiPrompt(config: PromptConfig): string {
   return config.isUpdate ? buildUpdatePrompt(config) : buildInitPrompt(config);
@@ -139,7 +224,15 @@ ${languageNote ? `\nLanguage note: ${languageNote}` : ""}
 
 ### Step 1 — Survey the File Map
 
-I have already crawled the repository. Below is the complete source file listing (index + relative path). Files matching include/exclude patterns and within the size limit are shown. Use the \`read\` tool to inspect files you need.
+The repository has been profiled and the file listing below was built using auto-detected include patterns. You can read files outside this listing if needed — it is advisory, not restrictive.
+
+**Project profile:**
+
+\`\`\`
+${ctx.profileSummary}
+\`\`\`
+
+**Filtered file listing (index + relative path):**
 
 \`\`\`
 ${ctx.fileListStr}
@@ -282,7 +375,11 @@ Changed files since the previous recorded commit:
 ${ctx.changedFileListStr || "(No changed-file list available; inspect relevant source files from the file map.)"}
 \`\`\`
 
-Current source file map:
+Current source file map (auto-detected include patterns):
+
+\`\`\`
+${ctx.profileSummary}
+\`\`\`
 
 \`\`\`
 ${ctx.fileListStr}
@@ -364,7 +461,11 @@ If there is no existing wiki, say so briefly, then inspect the source file map a
 
 ### Step 2 — Inspect Relevant Wiki and Source Files
 
-Current source file map:
+Current source file map (auto-detected include patterns):
+
+\`\`\`
+${ctx.profileSummary}
+\`\`\`
 
 \`\`\`
 ${ctx.fileListStr}
@@ -432,8 +533,11 @@ function buildPromptContext(
   const language = getNonEmptyStringOption(options, "language", "english");
   const format = getFormatOption(options);
   const maxSize = getIntegerOption(options, "max-size", "100000");
-  const includeRaw = getStringOption(options, "include", DEFAULT_INCLUDE);
   const excludeRaw = getStringOption(options, "exclude", DEFAULT_EXCLUDE);
+
+  // Auto-discover include patterns from the project profile
+  const profile = profileProjectFiles(targetDir);
+  const includeRaw = autoSelectPatterns(profile);
 
   const includePatterns = parseCsv(includeRaw);
   const excludePatterns = parseCsv(excludeRaw);
@@ -469,6 +573,9 @@ function buildPromptContext(
   const commit = getCurrentCommit();
   const generatedAt = new Date().toISOString();
   const generatedDate = generatedAt.slice(0, 10);
+
+  // Build a human-readable profile summary for the agent
+  const profileSummary = buildProfileSummary(profile, includeRaw);
 
   const metadataJson = JSON.stringify(
     {
@@ -519,6 +626,7 @@ function buildPromptContext(
     generatedAt,
     generatedDate,
     metadataJson,
+    profileSummary,
   };
 }
 
@@ -533,7 +641,7 @@ function commonConfiguration(ctx: PromptContext): string {
 - **Wiki output directory**: ${ctx.wikiDir} (create it if needed)
 - **Language**: ${ctx.language}
 - **Max file size**: ${ctx.maxSize} bytes (skip larger files)
-- **Include patterns**: ${ctx.includePatterns.join(", ")}
+- **Include patterns** (auto-detected): ${ctx.includePatterns.join(", ") || "(none)"}
 - **Exclude patterns**: ${ctx.excludePatterns.join(", ")}`;
 }
 
@@ -664,6 +772,7 @@ function commonRules(ctx: PromptContext): string {
   return `### Important Rules
 
 - **Read actual files** — do not guess or hallucinate code behavior. Use the read tool with file indices or paths.
+- **Include patterns are advisory, not enforced.** The file listing helps orient you but you may read files outside it.
 - **Excluded patterns are strictly enforced.** The extension blocks \`read\` tool calls matching any exclude pattern. If a read is blocked, the file is excluded — do not try to bypass this.${targetRule}
 - **Never include the wiki output directory (\`${ctx.wikiRel}/\`) as source analysis input.** It must not feed back into source discovery.
 - **It is OK to read and edit files inside \`${ctx.wikiRel}/\` only as wiki artifacts.**
@@ -718,4 +827,29 @@ function parseCsv(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+/** Build a lean human-readable summary from a project profile and selected patterns. */
+function buildProfileSummary(
+  profile: ProjectProfile,
+  selectedPatterns: string,
+): string {
+  const top = Object.entries(profile.extensionCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([ext, count]) => `  ${ext}: ${count}`)
+    .join("\n");
+
+  const configLine =
+    profile.configFiles.length > 0
+      ? `Recognized config files: ${profile.configFiles.join(", ")}\n`
+      : "No recognized config files found.\n";
+
+  return [
+    `Project profile — ${profile.totalFiles} files across ${profile.totalDirs} directories`,
+    configLine,
+    `Top extensions:`,
+    top || "  (none)",
+    `\nAuto-selected include patterns: ${selectedPatterns || "(none)"}`,
+  ].join("\n");
 }
