@@ -27,6 +27,8 @@ export interface PromptContext {
   commit: string | null;
   generatedAt: string;
   generatedDate: string;
+  /** Format-specific prompt rules from the format adapter. */
+  formatRulesText: string;
 }
 
 export const DEFAULT_EXCLUDE = [

@@ -28,8 +28,8 @@ import {
   type CodeWikiSettings,
   type ResolvedCodeWikiSettings,
 } from "./src/settings";
+import { getFormatAdapter } from "./src/obsidian";
 import {
-  OBSIDIAN_VAULT_CONFIG,
   WIKI_FORMATS,
   WIKI_INDEX_FILE,
   WIKI_LOG_FILE,
@@ -133,52 +133,6 @@ function getWikiFormatOption(value: unknown): WikiFormat | undefined {
     : undefined;
 }
 
-function ensureObsidianVaultConfig(wikiDir: string): void {
-  const obsidianConfigDir = path.join(wikiDir, OBSIDIAN_VAULT_CONFIG);
-  const appConfigPath = path.join(obsidianConfigDir, "app.json");
-  fs.mkdirSync(obsidianConfigDir, { recursive: true });
-  if (!fs.existsSync(appConfigPath)) {
-    fs.writeFileSync(appConfigPath, `${JSON.stringify({}, null, 2)}\n`);
-  }
-
-  // Ignore .obsidian/ — its contents are device-specific workspace settings
-  // (open files, window layout, plugin state) that should not be committed.
-  const gitignorePath = path.join(wikiDir, ".gitignore");
-  if (!fs.existsSync(gitignorePath)) {
-    fs.writeFileSync(gitignorePath, ".obsidian/\n");
-  }
-}
-
-function getObsidianOpenInfo(wikiDir: string): {
-  uri: string;
-  command: string;
-} {
-  const uri = `obsidian://open?path=${encodeURIComponent(wikiDir)}`;
-  const quotedUri = shellQuote(uri);
-
-  if (process.platform === "darwin") {
-    return { uri, command: `open ${quotedUri}` };
-  }
-
-  if (process.platform === "win32") {
-    return { uri, command: `start "" "${uri.replace(/"/g, '""')}"` };
-  }
-
-  return { uri, command: `xdg-open ${quotedUri}` };
-}
-
-function formatObsidianOpenMessage(wikiDir: string): string {
-  const { uri, command } = getObsidianOpenInfo(wikiDir);
-  return [
-    "Obsidian vault support enabled.",
-    `Open URI: ${uri}`,
-    `Copyable command: ${command}`,
-  ].join("\n");
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
 
 // ── Wiki action handler ───────────────────────────────────────────────────
 
@@ -299,9 +253,7 @@ async function handleWikiAction(
       ctx.ui.notify(`Force-overwriting existing wiki at "${output}"`, "info");
     }
 
-    if (format === "obsidian") {
-      ensureObsidianVaultConfig(wikiDir);
-    }
+    getFormatAdapter(format).setup(wikiDir);
 
     ctx.ui.notify(`Generating codebase wiki into ${output} ...`, "info");
     const promptCtx = resolvePromptContext({
@@ -323,9 +275,6 @@ async function handleWikiAction(
       ),
     });
     pi.sendUserMessage(prompt);
-    if (format === "obsidian") {
-      ctx.ui.notify(formatObsidianOpenMessage(wikiDir), "info");
-    }
     return;
   }
 
@@ -414,12 +363,6 @@ function runDoctorCheck(
     checks.push(`- Wiki directory not yet created (run /code-wiki init)`);
     if (requestedFormat) {
       checks.push(`  requested format: ${requestedFormat}`);
-    }
-    if (requestedFormat === "obsidian") {
-      const { uri, command } = getObsidianOpenInfo(wikiDir);
-      checks.push("Obsidian open (after init creates the directory):");
-      checks.push(`  URI: ${uri}`);
-      checks.push(`  command: ${command}`);
     }
     ctx.ui.notify(checks.join("\n"), "info");
     return;

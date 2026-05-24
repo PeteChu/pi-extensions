@@ -10,6 +10,7 @@ import {
   profileProjectFiles,
   type ProjectProfile,
 } from "./crawler";
+import { getFormatAdapter } from "./obsidian";
 import {
   DEFAULT_EXCLUDE,
   type PromptConfig,
@@ -67,6 +68,9 @@ export function resolvePromptContext(config: PromptConfig): PromptContext {
   const generatedAt = new Date().toISOString();
   const generatedDate = generatedAt.slice(0, 10);
 
+  const formatAdapter = getFormatAdapter(format);
+  const formatRulesText = formatAdapter.getPromptRules(generatedDate);
+
   return {
     repoRoot,
     targetDir,
@@ -84,6 +88,7 @@ export function resolvePromptContext(config: PromptConfig): PromptContext {
     commit,
     generatedAt,
     generatedDate,
+    formatRulesText,
   };
 }
 

@@ -156,7 +156,7 @@ Before writing, replace the empty \`generatedFiles\` array with the actual list 
 
 ---
 
-${commonRules(ctx)}${formatRules(ctx)}
+${commonRules(ctx)}${ctx.formatRulesText}
 - **Write ALL required files** — ${GENERATED_CONTENT_FILES.join(", ")}, chapter files, and ${WIKI_METADATA_FILE}. Leave nothing unwritten.
 - If you cannot complete everything in one turn, continue in the next turn until all files are written.`;
 }
@@ -249,7 +249,7 @@ ${buildMetadataJson(ctx, "update")}
 
 ---
 
-${commonRules(ctx)}${formatRules(ctx)}
+${commonRules(ctx)}${ctx.formatRulesText}
 - **Do not fully regenerate the wiki unless the existing wiki is unusable.** Prefer incremental maintenance.
 - If no source changes affect the wiki, still append a log entry noting that the wiki was checked and refresh metadata.`;
 }
@@ -341,7 +341,7 @@ ${schemaSpecification(ctx)}
 
 ---
 
-${commonRules(ctx)}${formatRules(ctx)}
+${commonRules(ctx)}${ctx.formatRulesText}
 - Do not turn this query into a full wiki regeneration.
 - Prefer reading the index/log/schema first, then only the most relevant source files.`;
 }
@@ -426,60 +426,6 @@ This wiki documents the ${ctx.projectName} codebase only. Source files in the re
 - Cite wiki pages when relying on existing synthesis.
 - Mark uncertainty when source evidence is incomplete.
 \`\`\``;
-}
-
-function formatRules(ctx: PromptContext): string {
-  if (ctx.format !== "obsidian") {
-    return "";
-  }
-
-  return `
-
-### Obsidian Flavored Markdown Conventions
-
-You are writing for an Obsidian vault. Follow these rules for every generated, updated, or newly filed wiki page.
-
-**Links**
-
-- Use [[wikilinks]] for internal wiki links: \`[[01_auth_flow]]\` not \`[Auth Flow](./01_auth_flow.md)\`.
-- Use custom display text when helpful: \`[[01_auth_flow|Authentication Flow]]\`.
-- Link answer pages as \`[[answers/${ctx.generatedDate}-model-selection|Model selection answer]]\`.
-- Embed related notes only when useful: \`![[01_database_schema]]\`.
-- For important anchored details, add a stable block ID like \`^implementation-details\` and link it as \`[[01_auth_flow#^implementation-details]]\`.
-- Standard Markdown links are still OK for external URLs and absolute source paths.
-- Do not use \`[text](url)\` for internal wiki links — always use \`[[page]]\` or \`[[page|display text]]\`.
-
-**Frontmatter**
-
-- Every Markdown page starts with YAML frontmatter between \`---\` fences, followed by exactly one H1.
-- Use date-only values like \`${ctx.generatedDate}\` for \`created\` and \`updated\`; do not use full ISO timestamps in frontmatter.
-- Index pages use: \`title\`, \`type: index\`, \`tags\`, \`created\`, \`updated\`.
-- Chapter/concept pages use: \`title\`, \`type: chapter\`, \`aliases\`, \`tags\`, \`created\`, \`updated\`, \`related\`.
-- Answer pages use: \`title\`, \`type: answer\`, \`aliases\`, \`tags\`, \`created\`, \`updated\`, \`related\`, and \`question: "original query"\`.
-- Log pages use: \`title\`, \`type: log\`; schema pages use: \`title\`, \`type: schema\`.
-- Keep \`related\` entries as wikilinks, for example \`related: ["[[01_auth_flow]]", "[[02_request_pipeline]]"]\`.
-
-**Callouts**
-
-- Use Obsidian callouts for key explanations, warnings, summaries, and tips.
-- Supported callouts include \`> [!note]\`, \`> [!warning]\`, \`> [!tip]\`, \`> [!info]\`, \`> [!question]\`, \`> [!danger]\`, \`> [!success]\`, \`> [!abstract]\`, \`> [!example]\`, and \`> [!quote]\`.
-- Foldable sections are allowed: \`> [!note]- Collapsed Section\`.
-
-**Tags**
-
-- Include inline #tags in body text, especially in index summaries, chapter summaries, and answer pages.
-- Use kebab-case tags such as \`#request-pipeline\`, \`#model-selection\`, and \`#architecture\`.
-
-**Answer filing**
-
-- Answer pages under \`${WIKI_ANSWERS_DIR}/\` must use Obsidian frontmatter, wikilinks to related pages, callouts for durable takeaways, and #tags.
-- Link filed answers from \`${WIKI_INDEX_FILE}\` with wikilinks, not relative Markdown links.
-
-**Schema conventions**
-
-- When writing or updating \`${WIKI_SCHEMA_FILE}\`, record that this wiki uses Obsidian Flavored Markdown.
-- The schema should instruct future maintainers to preserve frontmatter, wikilinks, callouts, #tags, and answer-page conventions.
-- Internal maintenance links in the schema should also use wikilinks where possible.`;
 }
 
 function commonRules(ctx: PromptContext): string {
