@@ -4,7 +4,7 @@
  */
 
 import * as path from "node:path";
-import type { ProjectProfile } from "./crawler";
+import type { ProjectProfile } from "./profiler";
 import type { PromptContext } from "./prompt-types";
 import {
   GENERATED_CONTENT_FILES,

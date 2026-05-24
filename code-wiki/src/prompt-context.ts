@@ -5,12 +5,10 @@
  */
 
 import * as path from "node:path";
-import {
-  crawlFiles,
-  profileProjectFiles,
-  type ProjectProfile,
-} from "./crawler";
+import { crawlFiles } from "./file-lister";
 import { getFormatAdapter } from "./obsidian";
+import type { ProjectProfile } from "./profiler";
+import { profileProjectFiles } from "./profiler";
 import {
   DEFAULT_EXCLUDE,
   type PromptConfig,

@@ -1,4 +1,4 @@
-import type { ProjectProfile } from "./crawler";
+import type { ProjectProfile } from "./profiler";
 import type { WikiFormat } from "./wiki-layout";
 
 export interface PromptConfig {

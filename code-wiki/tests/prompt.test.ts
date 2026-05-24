@@ -6,6 +6,9 @@ import {
   buildUpdatePrompt,
 } from "../src/prompt";
 import type { PromptContext } from "../src/prompt-types";
+import { getFormatAdapter } from "../src/obsidian";
+
+const generatedDate = "2026-05-24";
 
 const minimalCtx: PromptContext = {
   repoRoot: "/home/user/repo",
@@ -28,7 +31,8 @@ const minimalCtx: PromptContext = {
   },
   commit: "abc1234",
   generatedAt: "2026-05-24T10:00:00.000Z",
-  generatedDate: "2026-05-24",
+  generatedDate,
+  formatRulesText: "",
 };
 
 describe("buildInitPrompt", () => {
@@ -159,6 +163,7 @@ describe("Obsidian format", () => {
   const obsidianCtx: PromptContext = {
     ...minimalCtx,
     format: "obsidian",
+    formatRulesText: getFormatAdapter("obsidian").getPromptRules(generatedDate),
   };
 
   it("includes Obsidian wikilink conventions", () => {
