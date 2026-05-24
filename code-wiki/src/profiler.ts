@@ -37,6 +37,22 @@ const RECOGNIZED_CONFIG_FILES = new Set([
   "build.gradle.kts",
   "composer.json",
   "requirements.txt",
+  "Package.swift",
+  "pubspec.yaml",
+  "build.sbt",
+  "project.clj",
+  "stack.yaml",
+  "build.zig",
+  "flake.nix",
+  "DESCRIPTION",
+  "deno.json",
+  "deno.jsonc",
+  "Directory.Build.props",
+  "NuGet.config",
+  "vue.config.js",
+  "nuxt.config.ts",
+  "svelte.config.js",
+  "astro.config.mjs",
 ]);
 
 /** Lean summary returned by {@link profileProjectFiles}. */

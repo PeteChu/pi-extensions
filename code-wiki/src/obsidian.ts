@@ -79,11 +79,12 @@ You are writing for an Obsidian vault. Follow these rules for every generated, u
 **Frontmatter**
 
 - Every Markdown page starts with YAML frontmatter between \`---\` fences, followed by exactly one H1.
+- For schema and log pages, prepend this frontmatter before the required schema/log H1 content; frontmatter does not replace or remove required parseable Markdown content.
 - Use date-only values like \`${generatedDate}\` for \`created\` and \`updated\`; do not use full ISO timestamps in frontmatter.
 - Index pages use: \`title\`, \`type: index\`, \`tags\`, \`created\`, \`updated\`.
 - Chapter/concept pages use: \`title\`, \`type: chapter\`, \`aliases\`, \`tags\`, \`created\`, \`updated\`, \`related\`.
 - Answer pages use: \`title\`, \`type: answer\`, \`aliases\`, \`tags\`, \`created\`, \`updated\`, \`related\`, and \`question: "original query"\`.
-- Log pages use: \`title\`, \`type: log\`; schema pages use: \`title\`, \`type: schema\`.
+- Log pages use: \`title\`, \`type: log\`; schema pages use: \`title\`, \`type: schema\`. Place this frontmatter before the log/schema H1.
 - Keep \`related\` entries as wikilinks, for example \`related: ["[[01_auth_flow]]", "[[02_request_pipeline]]"]\`.
 
 **Callouts**
@@ -105,7 +106,8 @@ You are writing for an Obsidian vault. Follow these rules for every generated, u
 **Schema conventions**
 
 - When writing or updating \`${WIKI_SCHEMA_FILE}\`, record that this wiki uses Obsidian Flavored Markdown.
-- The schema should instruct future maintainers to preserve frontmatter, wikilinks, callouts, #tags, and answer-page conventions.
+- It is allowed and required in Obsidian mode to prepend YAML frontmatter before the schema's \`# Code Wiki Schema\` H1.
+- The schema should instruct future maintainers to preserve Obsidian conventions: frontmatter, wikilinks, callouts, #tags, stable block IDs when useful, and answer-page conventions.
 - Internal maintenance links in the schema should also use wikilinks where possible.`;
   },
 };

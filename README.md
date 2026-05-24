@@ -32,6 +32,7 @@ pi install npm:@petechu/pi-extension-toggle
 
 ## 📚 code-wiki — `/code-wiki`
 
+> **⚠️ Beta — Highly Experimental**
 > Generate and maintain a persistent codebase wiki — init, update, and query documentation that compounds over time.
 
 ```bash

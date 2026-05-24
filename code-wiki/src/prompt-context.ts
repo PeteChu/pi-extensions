@@ -64,7 +64,7 @@ export function resolvePromptContext(config: PromptConfig): PromptContext {
     : fileListing;
 
   const wikiRelForSourceFilter = path.relative(repoRoot, wikiDir);
-  const changedFiles = getChangedFilesSince(previousCommit).filter(
+  const changedFiles = getChangedFilesSince(previousCommit ?? undefined).filter(
     (file) => !file.startsWith(wikiRelForSourceFilter + path.sep),
   );
   const scopedChangedFiles =
@@ -97,6 +97,7 @@ export function resolvePromptContext(config: PromptConfig): PromptContext {
     fileList: repoRelativeFiles,
     changedFiles: scopedChangedFiles,
     profile,
+    previousCommit: previousCommit ?? null,
     commit,
     generatedAt,
     generatedDate,
@@ -109,12 +110,13 @@ export function resolvePromptContext(config: PromptConfig): PromptContext {
 /** Extension sets mapped to recognized config files. */
 const CONFIG_EXTENSION_MAP: Record<string, string[]> = {
   "tsconfig.json": ["*.ts", "*.tsx"],
-  "package.json": ["*.js", "*.jsx", "*.mjs", "*.cjs"],
+  "package.json": ["*.js", "*.ts", "*.tsx", "*.jsx", "*.mjs", "*.cjs"],
   "Cargo.toml": ["*.rs"],
   "go.mod": ["*.go"],
   "pyproject.toml": ["*.py", "*.pyi", "*.pyx"],
   "setup.py": ["*.py", "*.pyi", "*.pyx"],
   "setup.cfg": ["*.py", "*.pyi", "*.pyx"],
+  "requirements.txt": ["*.py", "*.pyi", "*.pyx"],
   "CMakeLists.txt": ["*.c", "*.cc", "*.cpp", "*.h", "*.hpp"],
   Gemfile: ["*.rb"],
   "mix.exs": ["*.ex", "*.exs"],
@@ -122,6 +124,22 @@ const CONFIG_EXTENSION_MAP: Record<string, string[]> = {
   "build.gradle": ["*.java", "*.kt", "*.kts"],
   "build.gradle.kts": ["*.java", "*.kt", "*.kts"],
   "composer.json": ["*.php"],
+  "Package.swift": ["*.swift"],
+  "pubspec.yaml": ["*.dart"],
+  "build.sbt": ["*.scala"],
+  "project.clj": ["*.clj", "*.cljs", "*.cljc"],
+  "stack.yaml": ["*.hs"],
+  "build.zig": ["*.zig"],
+  "flake.nix": ["*.nix"],
+  DESCRIPTION: ["*.R", "*.r"],
+  "deno.json": ["*.ts", "*.js", "*.tsx", "*.jsx"],
+  "deno.jsonc": ["*.ts", "*.js", "*.tsx", "*.jsx"],
+  "Directory.Build.props": ["*.cs", "*.csx"],
+  "NuGet.config": ["*.cs", "*.csx"],
+  "vue.config.js": ["*.vue"],
+  "nuxt.config.ts": ["*.vue"],
+  "svelte.config.js": ["*.svelte"],
+  "astro.config.mjs": ["*.astro"],
 };
 
 /** Extensions always included (docs and config are universally useful). */
@@ -202,7 +220,7 @@ export function autoSelectPatterns(profile: ProjectProfile): string {
     }
   }
 
-  return [...selected].sort().join(",");
+  return [...selected].sort().map((p) => (p.startsWith("**/") ? p : `**/${p}`)).join(",");
 }
 
 // ── Option parsers ────────────────────────────────────────────────────────

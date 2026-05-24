@@ -1,14 +1,10 @@
-import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import { DETAIL_LEVELS } from "./src/detail-level";
 import { parseArgs } from "./src/args";
 import { dispatch } from "./src/dispatch";
 import { matchesAny } from "./src/glob";
-import { type WikiOptions, isWikiAction } from "./src/handlers/types";
+import { isWikiAction } from "./src/handlers/types";
 import { createReadGuard } from "./src/read-guard";
-import { WIKI_FORMATS } from "./src/wiki-layout";
 
 const guard = createReadGuard(matchesAny);
 
@@ -64,93 +60,5 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     if (!isToolCallEventType("read", event)) return;
     return guard.check(event.input.path, ctx.cwd);
-  });
-
-  // ── Register code_wiki tool ──
-  pi.registerTool({
-    name: "code_wiki",
-    label: "Code Wiki",
-    description:
-      "Generate, incrementally update, query, or inspect a persistent codebase wiki. " +
-      "Use this when the user asks to document, explain, maintain, or query codebase knowledge.",
-    promptSnippet:
-      "Generate, update, or query a codebase wiki in docs/code-wiki/",
-    promptGuidelines: [
-      "Use code_wiki with action='init' when the user asks to generate documentation, " +
-        "a wiki, or a tutorial for the codebase for the first time.",
-      "Use code_wiki with action='update' when the user asks to refresh or maintain " +
-        "existing codebase documentation incrementally.",
-      "Use code_wiki with action='query' when the user asks a codebase question that should " +
-        "be answered from the wiki/source and potentially filed back into the wiki.",
-      "Use code_wiki with action='doctor' when the user asks to check the wiki setup.",
-      "Use the target parameter to narrow scope to a subdirectory (e.g., 'packages/backend') " +
-        "in monorepos, instead of the full repo root.",
-      "Use detailLevel to control the depth of durable wiki explanations without changing source analysis scope.",
-    ],
-    parameters: Type.Object({
-      action: StringEnum(["init", "update", "query", "doctor"] as const),
-      target: Type.Optional(
-        Type.String({
-          description:
-            "Target subdirectory within the repo (e.g., 'packages/backend'). Defaults to repo root.",
-        }),
-      ),
-      output: Type.Optional(
-        Type.String({
-          description: "Wiki directory path (default: docs/code-wiki)",
-        }),
-      ),
-      language: Type.Optional(
-        Type.String({ description: "Output language (default: english)" }),
-      ),
-      format: Type.Optional(
-        StringEnum(WIKI_FORMATS, {
-          description: "Output Markdown format (default: standard)",
-        }),
-      ),
-      detailLevel: Type.Optional(
-        StringEnum(DETAIL_LEVELS, {
-          description:
-            "Durable wiki explanation detail (default: standard): summary, standard, deep, or exhaustive.",
-        }),
-      ),
-      exclude: Type.Optional(
-        Type.String({
-          description:
-            "Comma-separated file patterns to exclude (e.g., 'tests/*,docs/*')",
-        }),
-      ),
-      question: Type.Optional(
-        Type.String({
-          description: "Question to answer when action='query'",
-        }),
-      ),
-      force: Type.Optional(
-        Type.Boolean({ description: "Force overwrite existing wiki on init" }),
-      ),
-    }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const options: WikiOptions = {};
-      if (params.target) options.target = params.target;
-      if (params.output) options.output = params.output;
-      if (params.language) options.language = params.language;
-      if (params.format) options.format = params.format;
-      if (params.detailLevel) options.detailLevel = params.detailLevel;
-      if (params.exclude) options.exclude = params.exclude;
-      if (params.question) options.question = params.question;
-      if (params.force) options.force = true;
-
-      await dispatch(params.action, options, pi, ctx, guard);
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `code_wiki ${params.action}: prompt sent to agent for processing.`,
-          },
-        ],
-        details: {},
-      };
-    },
   });
 }

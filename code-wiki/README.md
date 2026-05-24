@@ -1,5 +1,8 @@
 # Code Wiki
 
+> **⚠️ Beta — Highly Experimental**
+> This extension is in active development. APIs, behavior, and generated wiki layout may change without notice.
+
 Generate and maintain a persistent, beginner-friendly codebase wiki inside your repository. The extension guides Pi's agent to build Markdown documentation, keep it current incrementally, and file substantial answers from codebase questions back into the wiki.
 
 The design is inspired by Karpathy's LLM Wiki pattern: the wiki is a durable, compounding artifact (`index.md` + pages + `log.md` + schema), not a throwaway answer or full regeneration on every run.
@@ -201,36 +204,6 @@ Trivial answers may be logged without creating an answer page.
 ```
 
 Place this in `~/.pi/settings.json` (global) or `<project>/.pi/settings.json` (per-project, overrides global). `defaultDetailLevel` applies to new wikis; existing wiki metadata takes precedence during `update` and `query`. `maxSize` is only configured through settings.
-
-## Custom Tool
-
-The LLM can also invoke the wiki generator via the `code_wiki` tool:
-
-```text
-Use code_wiki with action="init" to generate a codebase wiki
-Use code_wiki with action="update" to incrementally maintain the wiki
-Use code_wiki with action="query" and question="..." to answer and file useful results
-Use code_wiki with action="doctor" to check the wiki status
-Pass target="packages/backend" to narrow scope to a subdirectory
-Pass format="obsidian" to initialize or maintain an Obsidian-ready vault
-Pass detailLevel="deep" to control durable wiki explanation detail
-```
-
-### Custom Tool Parameters
-
-The `code_wiki` tool accepts all the same parameters as the `/code-wiki` command, including:
-
-| Parameter     | Type               | Description                                    |
-| ------------- | ------------------ | ---------------------------------------------- |
-| `action`      | string             | `init`, `update`, `query`, or `doctor`         |
-| `target`      | string (optional)  | Subdirectory to scope the wiki to              |
-| `output`      | string (optional)  | Wiki directory path                            |
-| `language`    | string (optional)  | Output language                                |
-| `format`      | string (optional)  | `standard` or `obsidian`                       |
-| `detailLevel` | string (optional)  | `summary`, `standard`, `deep`, or `exhaustive` |
-| `exclude`     | string (optional)  | Comma-separated exclude patterns               |
-| `question`    | string (optional)  | Question for `query`                           |
-| `force`       | boolean (optional) | Overwrite existing wiki on init                |
 
 ## Strict Exclude Enforcement
 

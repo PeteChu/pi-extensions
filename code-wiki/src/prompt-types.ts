@@ -9,7 +9,7 @@ export interface PromptConfig {
   projectName: string;
   options: Record<string, string | boolean | undefined>;
   maxSize: number;
-  previousCommit?: string;
+  previousCommit?: string | null;
 }
 
 export interface PromptContext {
@@ -27,6 +27,7 @@ export interface PromptContext {
   fileList: string[];
   changedFiles: string[];
   profile: ProjectProfile;
+  previousCommit: string | null;
   commit: string | null;
   generatedAt: string;
   generatedDate: string;
@@ -35,33 +36,33 @@ export interface PromptContext {
 }
 
 export const DEFAULT_EXCLUDE = [
-  "assets/*",
-  "data/*",
-  "images/*",
-  "public/*",
-  "static/*",
-  "temp/*",
-  "*docs/code-wiki/*",
-  "*.code-wiki/*",
-  "*docs/*",
-  "*venv/*",
-  "*.venv/*",
-  "*test*",
-  "*tests/*",
-  "*examples/*",
+  "**/assets/*",
+  "**/data/*",
+  "**/images/*",
+  "**/public/*",
+  "**/static/*",
+  "**/temp/*",
+  "**/docs/code-wiki/*",
+  "**/.code-wiki/*",
+  "**/docs/*",
+  "**/venv/*",
+  "**/.venv/*",
+  "**/*test*",
+  "**/tests/*",
+  "**/examples/*",
   "v1/*",
-  "*dist/*",
-  "*build/*",
-  "*experimental/*",
-  "*deprecated/*",
-  "*misc/*",
-  "*legacy/*",
+  "**/dist/*",
+  "**/build/*",
+  "**/experimental/*",
+  "**/deprecated/*",
+  "**/misc/*",
+  "**/legacy/*",
   ".git/*",
   ".github/*",
   ".next/*",
   ".vscode/*",
-  "*obj/*",
-  "*bin/*",
-  "*node_modules/*",
-  "*.log",
+  "**/obj/*",
+  "**/bin/*",
+  "**/node_modules/*",
+  "**/*.log",
 ].join(",");
