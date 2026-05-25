@@ -87,6 +87,15 @@ importers:
         specifier: '*'
         version: 0.74.0(ws@8.20.1)(zod@4.4.3)
 
+  rewrite:
+    dependencies:
+      '@earendil-works/pi-ai':
+        specifier: '*'
+        version: 0.74.0(ws@8.20.1)(zod@4.4.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: '*'
+        version: 0.74.0(ws@8.20.1)(zod@4.4.3)
+
 packages:
 
   '@anthropic-ai/sdk@0.91.1':
