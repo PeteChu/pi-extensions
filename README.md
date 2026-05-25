@@ -47,6 +47,14 @@ pi install npm:@petechu/pi-code-wiki
 pi install npm:@petechu/pi-package-usage
 ```
 
+## ✍️ rewrite — `/rewrite`
+
+> Rewrite prompt text into a clearer coding-agent prompt, then load it into the editor for review before sending.
+
+```bash
+pi install npm:@petechu/pi-rewrite
+```
+
 ---
 
 ## License
