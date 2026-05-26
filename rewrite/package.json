@@ -1,6 +1,6 @@
 {
   "name": "@petechu/pi-rewrite",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Rewrite prompt text into a clearer coding-agent prompt before sending",
   "homepage": "https://github.com/PeteChu/pi-extensions",

@@ -4,11 +4,17 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+  buildSessionContext,
+  getAgentDir,
+} from "@earendil-works/pi-coding-agent";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 const COMMAND_NAME = "rewrite";
+const CONTEXT_FLAG = "--context";
+export const MAX_CONTEXT_CHARS = 20_000;
+const CONTEXT_OMITTED_MARKER = "[Earlier conversation context omitted.]";
 
 export const REWRITE_GUARDRAILS = `You rewrite user prompts for a coding agent.
 
@@ -18,6 +24,7 @@ Rules:
 - Do not answer the prompt or perform the requested task.
 - If important information is missing, add concise placeholders or questions inside the rewritten prompt.
 - Preserve the input language unless the rewrite instruction explicitly asks for another language.
+- When conversation context is provided, use it only to understand user expectations and references. Do not summarize or copy the context into the rewritten prompt unless it is directly relevant to the user's new prompt.
 - Output only the rewritten prompt. Do not include explanations, preambles, labels, or markdown fences.`;
 
 export const DEFAULT_REWRITE_INSTRUCTION = `Produce a prompt that a coding agent can act on without needing clarification.
@@ -29,87 +36,126 @@ export const DEFAULT_REWRITE_INSTRUCTION = `Produce a prompt that a coding agent
 
 export interface RewriteSettings {
   instruction?: unknown;
+  maxContextChars?: unknown;
 }
 
 export interface ResolvedRewriteSettings {
   instruction: string;
+  maxContextChars: number;
   warnings: string[];
 }
 
 export type RewriteInputValidation =
-  | { ok: true; prompt: string }
+  | { ok: true; prompt: string; includeContext: boolean }
   | { ok: false; reason: "missing" | "command-like" };
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function resolveInstructionFromSettings(
+function resolveSettingsFromSource(
   settings: unknown,
   source: "global" | "project",
 ): {
   instruction?: string;
+  maxContextChars?: number;
   hasInvalidInstruction: boolean;
+  hasInvalidMaxContextChars: boolean;
   warnings: string[];
 } {
   const warnings: string[] = [];
+  const emptyResult = {
+    hasInvalidInstruction: false,
+    hasInvalidMaxContextChars: false,
+    warnings,
+  };
   if (settings === undefined || settings === null) {
-    return { hasInvalidInstruction: false, warnings };
+    return emptyResult;
   }
 
   if (!isObject(settings)) {
     warnings.push(
       `Ignoring invalid ${source} rewrite settings: expected an object.`,
     );
-    return { hasInvalidInstruction: true, warnings };
+    return {
+      hasInvalidInstruction: true,
+      hasInvalidMaxContextChars: true,
+      warnings,
+    };
   }
 
-  if (!("instruction" in settings)) {
-    return { hasInvalidInstruction: false, warnings };
+  let instruction: string | undefined;
+  let maxContextChars: number | undefined;
+  let hasInvalidInstruction = false;
+  let hasInvalidMaxContextChars = false;
+
+  if ("instruction" in settings) {
+    if (typeof settings.instruction !== "string") {
+      warnings.push(
+        `Ignoring invalid ${source} rewrite.instruction: expected a non-empty string.`,
+      );
+      hasInvalidInstruction = true;
+    } else {
+      instruction = settings.instruction.trim();
+      if (!instruction) {
+        warnings.push(
+          `Ignoring invalid ${source} rewrite.instruction: expected a non-empty string.`,
+        );
+        hasInvalidInstruction = true;
+        instruction = undefined;
+      }
+    }
   }
 
-  if (typeof settings.instruction !== "string") {
-    warnings.push(
-      `Ignoring invalid ${source} rewrite.instruction: expected a non-empty string.`,
-    );
-    return { hasInvalidInstruction: true, warnings };
+  if ("maxContextChars" in settings) {
+    if (
+      typeof settings.maxContextChars === "number" &&
+      Number.isSafeInteger(settings.maxContextChars) &&
+      settings.maxContextChars > 0
+    ) {
+      maxContextChars = settings.maxContextChars;
+    } else {
+      warnings.push(
+        `Ignoring invalid ${source} rewrite.maxContextChars: expected a positive integer.`,
+      );
+      hasInvalidMaxContextChars = true;
+    }
   }
 
-  const instruction = settings.instruction.trim();
-  if (!instruction) {
-    warnings.push(
-      `Ignoring invalid ${source} rewrite.instruction: expected a non-empty string.`,
-    );
-    return { hasInvalidInstruction: true, warnings };
-  }
-
-  return { instruction, hasInvalidInstruction: false, warnings };
+  return {
+    instruction,
+    maxContextChars,
+    hasInvalidInstruction,
+    hasInvalidMaxContextChars,
+    warnings,
+  };
 }
 
 export function resolveRewriteSettings(
   globalSettings: unknown,
   projectSettings: unknown,
 ): ResolvedRewriteSettings {
-  const globalResult = resolveInstructionFromSettings(globalSettings, "global");
-  const projectResult = resolveInstructionFromSettings(
-    projectSettings,
-    "project",
-  );
+  const globalResult = resolveSettingsFromSource(globalSettings, "global");
+  const projectResult = resolveSettingsFromSource(projectSettings, "project");
   const warnings = [...globalResult.warnings, ...projectResult.warnings];
 
-  if (projectResult.instruction) {
-    return { instruction: projectResult.instruction, warnings };
-  }
+  const instruction = projectResult.instruction
+    ? projectResult.instruction
+    : projectResult.hasInvalidInstruction
+      ? DEFAULT_REWRITE_INSTRUCTION
+      : globalResult.instruction
+        ? globalResult.instruction
+        : DEFAULT_REWRITE_INSTRUCTION;
 
-  if (projectResult.hasInvalidInstruction) {
-    return { instruction: DEFAULT_REWRITE_INSTRUCTION, warnings };
-  }
+  const maxContextChars = projectResult.maxContextChars
+    ? projectResult.maxContextChars
+    : projectResult.hasInvalidMaxContextChars
+      ? MAX_CONTEXT_CHARS
+      : globalResult.maxContextChars
+        ? globalResult.maxContextChars
+        : MAX_CONTEXT_CHARS;
 
-  if (globalResult.instruction) {
-    return { instruction: globalResult.instruction, warnings };
-  }
-
-  return { instruction: DEFAULT_REWRITE_INSTRUCTION, warnings };
+  return { instruction, maxContextChars, warnings };
 }
 
 export function buildRewriteSystemPrompt(instruction: string): string {
@@ -117,16 +163,24 @@ export function buildRewriteSystemPrompt(instruction: string): string {
 }
 
 export function validateRewriteInput(args: string): RewriteInputValidation {
-  const prompt = args.trim();
+  let prompt = args.trim();
   if (!prompt) {
     return { ok: false, reason: "missing" };
+  }
+
+  const includeContext = new RegExp(`^${CONTEXT_FLAG}(?:\\s+|$)`).test(prompt);
+  if (includeContext) {
+    prompt = prompt.slice(CONTEXT_FLAG.length).trim();
+    if (!prompt) {
+      return { ok: false, reason: "missing" };
+    }
   }
 
   if (prompt.startsWith("/")) {
     return { ok: false, reason: "command-like" };
   }
 
-  return { ok: true, prompt };
+  return { ok: true, prompt, includeContext };
 }
 
 function stripOneWrapper(text: string): string {
@@ -172,6 +226,134 @@ export function cleanupRewriteOutput(output: string): string {
   }
 
   return current;
+}
+
+export interface RewriteConversationContext {
+  transcript: string;
+  truncated: boolean;
+  messageCount: number;
+}
+
+function textContentToString(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .filter(
+      (block): block is { type: "text"; text: string } =>
+        isObject(block) &&
+        block.type === "text" &&
+        typeof block.text === "string",
+    )
+    .map((block) => block.text)
+    .join("\n");
+}
+
+function truncateTranscript(
+  transcript: string,
+  maxChars: number,
+): {
+  transcript: string;
+  truncated: boolean;
+} {
+  if (maxChars <= 0) {
+    return { transcript: "", truncated: transcript.length > 0 };
+  }
+
+  if (transcript.length <= maxChars) {
+    return { transcript, truncated: false };
+  }
+
+  const tail = transcript.slice(-maxChars).trimStart();
+  return {
+    transcript: `${CONTEXT_OMITTED_MARKER}\n${tail}`,
+    truncated: true,
+  };
+}
+
+export function buildRewriteConversationTranscript(
+  messages: readonly unknown[],
+  maxChars = MAX_CONTEXT_CHARS,
+): RewriteConversationContext {
+  const lines: string[] = [];
+
+  for (const message of messages) {
+    if (!isObject(message)) {
+      continue;
+    }
+
+    if (message.role === "user") {
+      const text = textContentToString(message.content).trim();
+      if (text) {
+        lines.push(`User: ${text}`);
+      }
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      const text = textContentToString(message.content).trim();
+      if (text) {
+        lines.push(`Assistant: ${text}`);
+      }
+    }
+  }
+
+  const result = truncateTranscript(lines.join("\n\n"), maxChars);
+  return {
+    transcript: result.transcript,
+    truncated: result.truncated,
+    messageCount: lines.length,
+  };
+}
+
+export function buildRewriteUserMessageText(
+  prompt: string,
+  conversationContext?: string,
+): string {
+  const context = conversationContext?.trim();
+  if (!context) {
+    return prompt;
+  }
+
+  return `Conversation context for rewriting only:\n<context>\n${context}\n</context>\n\nRewrite this new user prompt:\n<prompt>\n${prompt}\n</prompt>`;
+}
+
+function getRewriteConversationContext(
+  ctx: ExtensionCommandContext,
+  maxContextChars: number,
+): RewriteConversationContext {
+  const sessionContext = buildSessionContext(
+    ctx.sessionManager.getEntries(),
+    ctx.sessionManager.getLeafId(),
+  );
+  return buildRewriteConversationTranscript(
+    sessionContext.messages,
+    maxContextChars,
+  );
+}
+
+function rewriteUsage(): string {
+  return `Usage: /${COMMAND_NAME} <prompt text>\n       /${COMMAND_NAME} ${CONTEXT_FLAG} <prompt text>`;
+}
+
+function getRewriteArgumentCompletions(prefix: string) {
+  const trimmedPrefix = prefix.trimStart();
+  if (trimmedPrefix.includes(" ") || !CONTEXT_FLAG.startsWith(trimmedPrefix)) {
+    return null;
+  }
+
+  return [
+    {
+      value: `${CONTEXT_FLAG} `,
+      label: CONTEXT_FLAG,
+      description: "Include current conversation context",
+    },
+  ];
 }
 
 function truncatePlain(text: string, width: number): string {
@@ -356,6 +538,7 @@ async function runRewrite(
   ctx: ExtensionCommandContext,
   originalPrompt: string,
   instruction: string,
+  conversationContext?: string,
 ): Promise<RewriteResult> {
   const model = ctx.model;
   if (!model) {
@@ -385,7 +568,15 @@ async function runRewrite(
 
       const userMessage: UserMessage = {
         role: "user",
-        content: [{ type: "text", text: originalPrompt }],
+        content: [
+          {
+            type: "text",
+            text: buildRewriteUserMessageText(
+              originalPrompt,
+              conversationContext,
+            ),
+          },
+        ],
         timestamp: Date.now(),
       };
 
@@ -455,6 +646,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand(COMMAND_NAME, {
     description:
       "Rewrite prompt text and load the improved prompt into the editor",
+    getArgumentCompletions: getRewriteArgumentCompletions,
     handler: async (args, ctx) => {
       if (!ctx.hasUI) {
         ctx.ui.notify("rewrite requires interactive or RPC mode", "error");
@@ -464,7 +656,7 @@ export default function (pi: ExtensionAPI) {
       const validation = validateRewriteInput(args);
       if (!validation.ok) {
         if (validation.reason === "missing") {
-          ctx.ui.notify(`Usage: /${COMMAND_NAME} <prompt text>`, "warning");
+          ctx.ui.notify(rewriteUsage(), "warning");
           return;
         }
 
@@ -486,11 +678,32 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(warning, "warning");
       }
 
+      let conversationContext: string | undefined;
+      if (validation.includeContext) {
+        if (!ctx.isIdle()) {
+          await ctx.waitForIdle();
+        }
+
+        const context = getRewriteConversationContext(
+          ctx,
+          settings.maxContextChars,
+        );
+        if (context.transcript) {
+          conversationContext = context.transcript;
+        } else {
+          ctx.ui.notify(
+            "No prior user/assistant context found; rewriting without context.",
+            "info",
+          );
+        }
+      }
+
       const result = await runRewrite(
         pi,
         ctx,
         validation.prompt,
         settings.instruction,
+        conversationContext,
       );
       if (result.type === "cancelled") {
         ctx.ui.setEditorText(validation.prompt);
