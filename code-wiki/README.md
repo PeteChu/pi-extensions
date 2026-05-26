@@ -169,9 +169,9 @@ Trivial answers may be logged without creating an answer page.
 `/code-wiki init`, `/code-wiki update`, and `/code-wiki query` select a generation model before sending the wiki prompt:
 
 1. Read `codeWiki.generationModels` from Pi's global settings and project `.pi/settings.json` (project overrides global).
-2. Iterate the list in order and use the first model that exists in Pi's model registry and has working authentication.
-3. If none of the configured models are available, fall back to the currently selected Pi model.
-4. Switch the active model to the selection before sending the wiki prompt.
+2. Iterate the list in order, skipping missing models and auth failures; if a candidate switch fails with `setModel`, continue to the next model instead of stopping.
+3. If no configured model can be activated, fall back to the currently selected Pi model.
+4. Switch the active model to the selection before sending the wiki prompt (unless it is already current).
 
 `/code-wiki doctor` does **not** require or switch any model — it only checks local filesystem and git metadata.
 

@@ -162,6 +162,17 @@ function sanitizeCodeWikiSettings(
 
 // ── Model selection ───────────────────────────────────────────────────────
 
+export interface GenerationModelSwitchFailure {
+  provider: string;
+  id: string;
+}
+
+export interface GenerationModelSelectionResult {
+  model: Model<Api>;
+  switched: boolean;
+  failedSwitches: GenerationModelSwitchFailure[];
+}
+
 export async function selectGenerationModel(
   currentModel: Model<Api>,
   modelRegistry: {
@@ -173,7 +184,10 @@ export async function selectGenerationModel(
     }>;
   },
   modelPreferences: ModelPreference[],
-): Promise<Model<Api>> {
+  setModel: (model: Model<Api>) => Promise<boolean>,
+): Promise<GenerationModelSelectionResult> {
+  const failedSwitches: GenerationModelSwitchFailure[] = [];
+
   for (const preference of modelPreferences) {
     const model = modelRegistry.find(preference.provider, preference.id);
     if (!model) {
@@ -181,10 +195,24 @@ export async function selectGenerationModel(
     }
 
     const auth = await modelRegistry.getApiKeyAndHeaders(model);
-    if (auth.ok) {
-      return model;
+    if (!auth.ok) {
+      continue;
     }
+
+    if (
+      model.provider === currentModel.provider &&
+      model.id === currentModel.id
+    ) {
+      return { model, switched: false, failedSwitches };
+    }
+
+    const ok = await setModel(model);
+    if (ok) {
+      return { model, switched: true, failedSwitches };
+    }
+
+    failedSwitches.push({ provider: preference.provider, id: preference.id });
   }
 
-  return currentModel;
+  return { model: currentModel, switched: false, failedSwitches };
 }

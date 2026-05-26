@@ -1,6 +1,6 @@
 {
   "name": "@petechu/pi-code-wiki",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Generate and maintain a persistent, compounding codebase wiki inside your repository",
   "homepage": "https://github.com/PeteChu/pi-extensions",

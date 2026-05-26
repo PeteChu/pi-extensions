@@ -160,23 +160,30 @@ export async function dispatch(
 
   const settings = await loadCodeWikiSettings(ctx);
 
-  const model = await selectGenerationModel(
+  const modelSelection = await selectGenerationModel(
     ctx.model,
     ctx.modelRegistry,
     settings.generationModels,
+    (model) => pi.setModel(model),
   );
 
-  // Switch to the selected generation model if it differs from the current one.
-  if (model !== ctx.model) {
-    const ok = await pi.setModel(model);
-    if (!ok) {
-      ctx.ui.notify(
-        `Failed to switch to ${model.id} — no API key available`,
-        "error",
-      );
-      return;
-    }
-    ctx.ui.notify(`Switched to ${model.id} for wiki generation`, "info");
+  if (modelSelection.failedSwitches.length > 0) {
+    const failedModels = modelSelection.failedSwitches
+      .map(({ provider, id }) => `${provider}/${id}`)
+      .join(", ");
+    ctx.ui.notify(
+      modelSelection.switched
+        ? `Could not switch to ${failedModels}; using ${modelSelection.model.provider}/${modelSelection.model.id} for wiki generation`
+        : `Could not switch to ${failedModels}; continuing with ${modelSelection.model.provider}/${modelSelection.model.id}`,
+      "warning",
+    );
+  }
+
+  if (modelSelection.switched) {
+    ctx.ui.notify(
+      `Switched to ${modelSelection.model.provider}/${modelSelection.model.id} for wiki generation`,
+      "info",
+    );
   }
 
   const handlerCtx: WikiActionHandlerContext = {
