@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { parseArgs } from "./src/args";
+import { getCodeWikiArgumentCompletions } from "./src/completions";
 import { dispatch } from "./src/dispatch";
 import { matchesAny } from "./src/glob";
 import { isWikiAction } from "./src/handlers/types";
@@ -14,6 +15,7 @@ export default function (pi: ExtensionAPI) {
   // ── Register /code-wiki command ──
   pi.registerCommand("code-wiki", {
     description: "Generate and manage a codebase wiki",
+    getArgumentCompletions: getCodeWikiArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseArgs(args);
       const action = parsed.subcommand;
