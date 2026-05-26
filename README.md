@@ -57,6 +57,20 @@ pi install npm:@petechu/pi-rewrite
 
 ---
 
+## 🎨 Skills
+
+### Installation
+
+```bash
+npx skills@latest add petechu/skills
+```
+
+### 🖼️ to-html — `/skill:to-html`
+
+> Convert conversation context into a self-contained static HTML page using a clean, minimal design system with Tailwind CSS. Great for turning investigation results, code reviews, or reports into browser-friendly documents you can share.
+
+---
+
 ## License
 
 MIT
