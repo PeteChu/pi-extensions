@@ -17,6 +17,10 @@ After installing, run:
 /extension-toggle
 ```
 
+Or press `Ctrl+Shift+E` to open the picker as a floating window. Pressing `Ctrl+Shift+E` from `/extension-toggle` closes the default picker and opens the floating one; pressing it again from the floating window hides/shows that window without losing pending selections.
+
+Press `?` in either picker to show help, including the floating-window shortcut.
+
 The command shows grouped entries by source with their current state:
 
 ```text
@@ -36,6 +40,7 @@ Press `/` or Ctrl+F to enter search mode, then type an extension, skill, prompt,
 - use Backspace/Delete to remove characters;
 - use Ctrl+U to clear the query;
 - use Esc to leave search mode without clearing the filter;
+- press Esc again after leaving search mode to clear the applied filter before cancelling the UI;
 - press Enter to apply selected changes.
 
 Filtering only changes which rows are visible. Toggle state is remembered by the original source, so checked/unchecked entries stay changed even when the search query hides them.

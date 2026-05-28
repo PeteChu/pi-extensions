@@ -4,6 +4,8 @@ import {
   SettingsManager,
   type ExtensionAPI,
   type ExtensionCommandContext,
+  type ExtensionContext,
+  type Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
   Key,
@@ -11,6 +13,9 @@ import {
   truncateToWidth,
   visibleWidth,
   type Component,
+  type OverlayHandle,
+  type OverlayOptions,
+  type TUI,
 } from "@earendil-works/pi-tui";
 import {
   assertToggleableScope,
@@ -24,10 +29,64 @@ import {
 } from "./utils";
 
 const COMMAND_NAME = "extension-toggle";
+const FLOATING_WINDOW_SHORTCUT = Key.ctrlShift("e");
 
 export interface ExtensionToggleSelection {
   option: ExtensionOption;
   enabled: boolean;
+}
+
+const OPEN_FLOATING_WINDOW = "open-floating-window";
+type SelectExtensionTogglesResult =
+  | ExtensionToggleSelection[]
+  | null
+  | typeof OPEN_FLOATING_WINDOW;
+type VisibleRowCount = number | (() => number);
+
+function fitControlHints(
+  hints: string[],
+  width: number,
+  pinnedHints: string[] = [],
+): string {
+  const safeWidth = Math.max(0, width);
+  const joined = hints.join(" · ");
+  if (visibleWidth(joined) <= safeWidth) {
+    return joined;
+  }
+
+  const pinned = new Set(pinnedHints);
+  const kept = new Set<string>(pinnedHints);
+  for (const hint of hints) {
+    if (pinned.has(hint)) continue;
+
+    const candidate = hints
+      .filter((entry) => kept.has(entry) || entry === hint)
+      .join(" · ");
+    if (visibleWidth(candidate) <= safeWidth) {
+      kept.add(hint);
+    }
+  }
+
+  const fitted = hints.filter((hint) => kept.has(hint)).join(" · ");
+  if (visibleWidth(fitted) <= safeWidth) {
+    return fitted;
+  }
+
+  if (pinned.has("? help")) {
+    return visibleWidth("? help") <= safeWidth
+      ? "? help"
+      : truncateToWidth("?", safeWidth, "");
+  }
+
+  const keptHints: string[] = [];
+  for (const hint of hints) {
+    const candidate = [...keptHints, hint].join(" · ");
+    if (visibleWidth(candidate) <= safeWidth) {
+      keptHints.push(hint);
+    }
+  }
+
+  return keptHints.join(" · ");
 }
 
 export class ExtensionMultiSelect implements Component {
@@ -36,11 +95,13 @@ export class ExtensionMultiSelect implements Component {
   private searchQuery = "";
   private readonly checkedIndexes = new Set<number>();
   private readonly initialCheckedIndexes = new Set<number>();
-  private readonly maxVisible = 12;
 
   constructor(
     private readonly options: ExtensionOption[],
     private readonly done: (result: ExtensionToggleSelection[] | null) => void,
+    private readonly maxVisibleRows: VisibleRowCount = 12,
+    private readonly showHelpHint = false,
+    private readonly floatingShortcutFooterHint: string | undefined = undefined,
   ) {
     for (let i = 0; i < options.length; i++) {
       if (isSourceEnabled(options[i].resources)) {
@@ -54,6 +115,14 @@ export class ExtensionMultiSelect implements Component {
 
   private get filteredOptions(): FilteredExtensionOption[] {
     return filterExtensionOptions(this.options, this.searchQuery);
+  }
+
+  private get maxVisible(): number {
+    const value =
+      typeof this.maxVisibleRows === "function"
+        ? this.maxVisibleRows()
+        : this.maxVisibleRows;
+    return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 12;
   }
 
   private clampSelectedIndex(filtered = this.filteredOptions): void {
@@ -131,6 +200,7 @@ export class ExtensionMultiSelect implements Component {
     const filtered = this.filteredOptions;
     this.clampSelectedIndex(filtered);
     const safeWidth = Math.max(0, width);
+    const maxVisible = this.maxVisible;
     const fitLine = (line: string): string =>
       visibleWidth(line) > safeWidth
         ? truncateToWidth(line, safeWidth, "...")
@@ -138,9 +208,56 @@ export class ExtensionMultiSelect implements Component {
     const searchStatus = this.searchMode ? "active" : "inactive";
     const queryDisplay =
       this.searchQuery.length > 0 ? this.searchQuery : "(empty)";
-    const controls = this.searchMode
-      ? "type: search · backspace/delete: remove · ctrl+u: clear · esc: close search · enter: apply"
-      : "↑/↓ or j/k: move · / or ctrl+f: search · space: check/uncheck · enter: apply · esc: cancel";
+    const controlHints = this.searchMode
+      ? this.showHelpHint
+        ? [
+            "type search",
+            "enter apply",
+            "esc close search",
+            ...(this.floatingShortcutFooterHint
+              ? [this.floatingShortcutFooterHint]
+              : []),
+            "? help",
+          ]
+        : [
+            "type: search",
+            "backspace/delete: remove",
+            "ctrl+u: clear",
+            "esc: close search",
+            "enter: apply",
+          ]
+      : this.showHelpHint
+        ? [
+            "↑/↓ move",
+            "space toggle",
+            "/ search",
+            "enter apply",
+            "esc cancel",
+            ...(this.floatingShortcutFooterHint
+              ? [this.floatingShortcutFooterHint]
+              : []),
+            "? help",
+          ]
+        : [
+            "↑/↓ or j/k: move",
+            "/ or ctrl+f: search",
+            "space: check/uncheck",
+            "enter: apply",
+            "esc: cancel",
+          ];
+    const fitControls = (): string =>
+      fitControlHints(
+        controlHints,
+        safeWidth,
+        this.showHelpHint
+          ? [
+              ...(this.floatingShortcutFooterHint
+                ? [this.floatingShortcutFooterHint]
+                : []),
+              "? help",
+            ]
+          : [],
+      );
     const lines = [
       fitLine("Enable or disable sources"),
       fitLine(`Search (${searchStatus}): ${queryDisplay}`),
@@ -153,11 +270,11 @@ export class ExtensionMultiSelect implements Component {
       const startIndex = Math.max(
         0,
         Math.min(
-          this.selectedFilteredIndex - Math.floor(this.maxVisible / 2),
-          filtered.length - this.maxVisible,
+          this.selectedFilteredIndex - Math.floor(maxVisible / 2),
+          filtered.length - maxVisible,
         ),
       );
-      const endIndex = Math.min(startIndex + this.maxVisible, filtered.length);
+      const endIndex = Math.min(startIndex + maxVisible, filtered.length);
 
       for (let i = startIndex; i < endIndex; i++) {
         const row = filtered[i];
@@ -172,7 +289,7 @@ export class ExtensionMultiSelect implements Component {
       }
     }
 
-    if (filtered.length > this.maxVisible) {
+    if (filtered.length > maxVisible) {
       lines.push(
         fitLine(
           `(${this.selectedFilteredIndex + 1}/${filtered.length} shown, ${this.options.length} total) ${this.checkedIndexes.size} enabled`,
@@ -188,7 +305,7 @@ export class ExtensionMultiSelect implements Component {
       lines.push(fitLine(`${this.checkedIndexes.size} enabled`));
     }
 
-    lines.push(fitLine(controls));
+    lines.push(fitControls());
 
     return lines;
   }
@@ -257,18 +374,247 @@ export class ExtensionMultiSelect implements Component {
     }
 
     if (matchesKey(data, Key.escape)) {
+      if (this.searchQuery.length > 0) {
+        this.setSearchQuery("");
+        return;
+      }
+
       this.done(null);
     }
   }
 }
 
+class ExtensionToggleHelpOverlay implements Component {
+  constructor(
+    private readonly theme: Theme,
+    private readonly shortcutHelp: string,
+    private readonly onClose: () => void,
+    private readonly onToggleShortcut: () => void,
+  ) {}
+
+  invalidate(): void {}
+
+  handleInput(data: string): void {
+    if (matchesKey(data, FLOATING_WINDOW_SHORTCUT)) {
+      this.onClose();
+      this.onToggleShortcut();
+      return;
+    }
+
+    if (
+      data === "?" ||
+      matchesKey(data, Key.question) ||
+      matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.enter) ||
+      matchesKey(data, Key.ctrl("c"))
+    ) {
+      this.onClose();
+    }
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(0, width);
+    if (safeWidth < 3) {
+      return [truncateToWidth("?", safeWidth, "")];
+    }
+
+    const innerWidth = safeWidth - 2;
+    const fitLine = (line: string): string => {
+      const fitted =
+        visibleWidth(line) > innerWidth
+          ? truncateToWidth(line, innerWidth, "...")
+          : line;
+      return `${fitted}${" ".repeat(Math.max(0, innerWidth - visibleWidth(fitted)))}`;
+    };
+    const accent = (text: string) => this.theme.fg("accent", text);
+    const dim = (text: string) => this.theme.fg("dim", text);
+    const content = [
+      accent("Extension Toggle Help"),
+      "",
+      `${accent("Ctrl+Shift+E")} ${this.shortcutHelp}`,
+      `${accent("?")} close this help overlay`,
+      `${accent("↑/↓")} or ${accent("j/k")} move selection`,
+      `${accent("Space")} check or uncheck a source`,
+      `${accent("/")} or ${accent("Ctrl+F")} enter search mode`,
+      `${accent("Backspace/Delete")} remove search text`,
+      `${accent("Ctrl+U")} clear search text`,
+      `${accent("Enter")} apply selected changes`,
+      `${accent("Esc")} cancel, or close search mode when searching`,
+      "",
+      dim("This help is a second overlay stacked above the picker."),
+    ];
+
+    return [
+      `╭${"─".repeat(innerWidth)}╮`,
+      ...content.map((line) => `│${fitLine(line)}│`),
+      `╰${"─".repeat(innerWidth)}╯`,
+    ];
+  }
+}
+
+class ExtensionToggleOverlay implements Component {
+  private helpHandle: OverlayHandle | null = null;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly theme: Theme,
+    private readonly inner: ExtensionMultiSelect,
+    private readonly onToggleShortcut: () => void,
+    private readonly shortcutHelp: string,
+    private readonly showBorder: boolean,
+  ) {}
+
+  invalidate(): void {
+    this.inner.invalidate();
+  }
+
+  dispose(): void {
+    this.hideHelp();
+  }
+
+  private hideHelp(): void {
+    this.helpHandle?.hide();
+    this.helpHandle = null;
+  }
+
+  private showHelp(): void {
+    if (this.helpHandle) {
+      this.helpHandle.focus();
+      return;
+    }
+
+    const component = new ExtensionToggleHelpOverlay(
+      this.theme,
+      this.shortcutHelp,
+      () => this.hideHelp(),
+      this.onToggleShortcut,
+    );
+    this.helpHandle = this.tui.showOverlay(component, {
+      anchor: "center",
+      width: 64,
+      maxHeight: "80%",
+      margin: 2,
+    });
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, FLOATING_WINDOW_SHORTCUT)) {
+      this.onToggleShortcut();
+      return;
+    }
+
+    if (data === "?" || matchesKey(data, Key.question)) {
+      this.showHelp();
+      return;
+    }
+
+    this.inner.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(0, width);
+    if (!this.showBorder) {
+      return this.inner.render(safeWidth);
+    }
+
+    if (safeWidth < 3) {
+      return this.inner.render(safeWidth);
+    }
+
+    const innerWidth = safeWidth - 2;
+    const padLine = (line: string): string => {
+      const fitted =
+        visibleWidth(line) > innerWidth
+          ? truncateToWidth(line, innerWidth, "...")
+          : line;
+      return `${fitted}${" ".repeat(Math.max(0, innerWidth - visibleWidth(fitted)))}`;
+    };
+
+    return [
+      `╭${"─".repeat(innerWidth)}╮`,
+      ...this.inner.render(innerWidth).map((line) => `│${padLine(line)}│`),
+      `╰${"─".repeat(innerWidth)}╯`,
+    ];
+  }
+}
+
+interface SelectExtensionTogglesOptions {
+  overlay?: boolean;
+  onHandle?: (handle: OverlayHandle) => void;
+  onToggleShortcut?: () => void;
+}
+
+const extensionToggleOverlayOptions: OverlayOptions = {
+  anchor: "center",
+  width: "80%",
+  minWidth: 50,
+  maxHeight: "80%",
+  margin: 2,
+};
+
+function getResponsiveOverlayVisibleRows(termRows: number): number {
+  const verticalMargins = 4;
+  const overlayChromeLines = 7;
+  const maxOverlayHeight = Math.min(
+    Math.floor(termRows * 0.8),
+    Math.max(1, termRows - verticalMargins),
+  );
+  return Math.max(1, maxOverlayHeight - overlayChromeLines);
+}
+
 async function selectExtensionToggles(
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
   options: ExtensionOption[],
-): Promise<ExtensionToggleSelection[] | null> {
-  return await ctx.ui.custom((_, _theme, _kb, done) => {
-    return new ExtensionMultiSelect(options, done);
-  });
+  uiOptions: SelectExtensionTogglesOptions = {},
+): Promise<SelectExtensionTogglesResult> {
+  return await ctx.ui.custom<SelectExtensionTogglesResult>(
+    (tui, _theme, _kb, done) => {
+      const showHelpHint =
+        uiOptions.overlay === true || uiOptions.onToggleShortcut !== undefined;
+      const component = new ExtensionMultiSelect(
+        options,
+        done,
+        uiOptions.overlay
+          ? () => getResponsiveOverlayVisibleRows(tui.terminal.rows)
+          : 12,
+        showHelpHint,
+        !uiOptions.overlay && uiOptions.onToggleShortcut
+          ? "ctrl+shift+e float"
+          : undefined,
+      );
+      if (!showHelpHint) {
+        return component;
+      }
+
+      const handleToggleShortcut = () => {
+        if (uiOptions.overlay) {
+          uiOptions.onToggleShortcut?.();
+          return;
+        }
+
+        done(OPEN_FLOATING_WINDOW);
+        setTimeout(() => uiOptions.onToggleShortcut?.(), 0);
+      };
+
+      return new ExtensionToggleOverlay(
+        tui,
+        _theme,
+        component,
+        handleToggleShortcut,
+        uiOptions.overlay
+          ? "hide/show the floating window"
+          : "open floating window",
+        uiOptions.overlay === true,
+      );
+    },
+    uiOptions.overlay
+      ? {
+          overlay: true,
+          overlayOptions: extensionToggleOverlayOptions,
+          onHandle: uiOptions.onHandle,
+        }
+      : undefined,
+  );
 }
 
 export async function discoverExtensionResources(
@@ -373,11 +719,16 @@ function applyExtensionToggle(
   return true;
 }
 
-async function extensionToggleHandler(ctx: ExtensionCommandContext) {
-  await ctx.waitForIdle();
+interface RunExtensionToggleOptions extends SelectExtensionTogglesOptions {
+  reload?: () => Promise<void> | void;
+}
 
+async function runExtensionToggle(
+  ctx: ExtensionContext,
+  uiOptions: RunExtensionToggleOptions = {},
+): Promise<void> {
   if (!ctx.hasUI) {
-    ctx.ui.notify("/extension-toggle requires interactive mode", "error");
+    ctx.ui.notify("extension-toggle requires interactive mode", "error");
     return;
   }
 
@@ -393,7 +744,11 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
     return;
   }
 
-  const selectedOptions = await selectExtensionToggles(ctx, options);
+  const selectedOptions = await selectExtensionToggles(ctx, options, uiOptions);
+
+  if (selectedOptions === OPEN_FLOATING_WINDOW) {
+    return;
+  }
 
   if (selectedOptions === null) {
     ctx.ui.notify("Cancelled", "info");
@@ -454,6 +809,11 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
     "info",
   );
 
+  if (!uiOptions.reload) {
+    ctx.ui.notify("Change saved. Run /reload later to apply it.", "info");
+    return;
+  }
+
   const reload = await ctx.ui.confirm(
     "Reload now?",
     "Reload now so the change takes effect immediately?",
@@ -464,13 +824,66 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
     return;
   }
 
-  await ctx.reload();
+  await uiOptions.reload();
+}
+
+async function extensionToggleHandler(
+  ctx: ExtensionCommandContext,
+  openFloatingWindow?: () => void,
+) {
+  await ctx.waitForIdle();
+  await runExtensionToggle(ctx, {
+    reload: () => ctx.reload(),
+    onToggleShortcut: openFloatingWindow,
+  });
 }
 
 export default function (pi: ExtensionAPI) {
+  let floatingWindowHandle: OverlayHandle | null = null;
+  let floatingWindowPromise: Promise<void> | null = null;
+
+  async function toggleFloatingWindow(ctx: ExtensionContext): Promise<void> {
+    if (floatingWindowHandle) {
+      if (floatingWindowHandle.isHidden()) {
+        floatingWindowHandle.setHidden(false);
+        floatingWindowHandle.focus();
+      } else {
+        floatingWindowHandle.setHidden(true);
+      }
+      return;
+    }
+
+    if (floatingWindowPromise) {
+      return;
+    }
+
+    floatingWindowPromise = runExtensionToggle(ctx, {
+      overlay: true,
+      onHandle: (handle) => {
+        floatingWindowHandle = handle;
+      },
+      onToggleShortcut: () => {
+        floatingWindowHandle?.setHidden(true);
+      },
+    }).finally(() => {
+      floatingWindowHandle = null;
+      floatingWindowPromise = null;
+    });
+
+    await floatingWindowPromise;
+  }
+
+  pi.registerShortcut(FLOATING_WINDOW_SHORTCUT, {
+    description: "Toggle extension options floating window",
+    handler: async (ctx) => toggleFloatingWindow(ctx),
+  });
+
   pi.registerCommand(COMMAND_NAME, {
     description:
       "Enable or disable installed Pi extensions, skills, prompts, and themes",
-    handler: async (_args, ctx) => extensionToggleHandler(ctx),
+    handler: async (_args, ctx) =>
+      extensionToggleHandler(ctx, () => {
+        void toggleFloatingWindow(ctx);
+      }),
   });
 }
