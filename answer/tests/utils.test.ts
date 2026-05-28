@@ -1,5 +1,6 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { formatResponseAnswer, normalizeResponses } from "../qna-tui";
 import {
   applyTemplate,
   buildToolExtractionSystemPrompt,
@@ -11,7 +12,6 @@ import {
   questionsMatch,
   resolveNumericOptionShortcut,
 } from "../utils";
-import { formatResponseAnswer, normalizeResponses } from "../qna-tui";
 
 describe("parseExtractionResult", () => {
   it("extracts JSON from code blocks", () => {
@@ -300,6 +300,8 @@ describe("shared qna helpers", () => {
         customText: "Deno",
         selectionTouched: true,
         committed: true,
+        selectionMode: "single",
+        selectedOptionIndexes: [],
       }),
       "Deno",
     );
@@ -320,7 +322,7 @@ describe("shared qna helpers", () => {
       customText: "",
       selectionTouched: true,
       committed: true,
-      selectionMode: 'multiple',
+      selectionMode: "multiple",
       selectedOptionIndexes: [0, 2],
     });
 
@@ -341,7 +343,7 @@ describe("shared qna helpers", () => {
       customText: "Deno",
       selectionTouched: true,
       committed: true,
-      selectionMode: 'multiple',
+      selectionMode: "multiple",
       selectedOptionIndexes: [0, 2],
     });
 
@@ -362,7 +364,7 @@ describe("shared qna helpers", () => {
       customText: "",
       selectionTouched: false,
       committed: false,
-      selectionMode: 'multiple',
+      selectionMode: "multiple",
       selectedOptionIndexes: [],
     });
 
@@ -388,7 +390,7 @@ describe("shared qna helpers", () => {
           customText: "",
           selectionTouched: true,
           committed: true,
-          selectionMode: 'multiple' as const,
+          selectionMode: "multiple" as const,
           selectedOptionIndexes: [0, 1],
         },
       ],
@@ -396,7 +398,7 @@ describe("shared qna helpers", () => {
       true,
     );
 
-    assert.strictEqual(responses[0].selectionMode, 'multiple');
+    assert.strictEqual(responses[0].selectionMode, "multiple");
     assert.deepEqual(responses[0].selectedOptionIndexes, [0, 1]);
     assert.strictEqual(
       formatResponseAnswer(questions[0], responses[0]),
@@ -430,11 +432,8 @@ describe("shared qna helpers", () => {
       true,
     );
 
-    assert.strictEqual(responses[0].selectionMode, 'single');
+    assert.strictEqual(responses[0].selectionMode, "single");
     assert.deepEqual(responses[0].selectedOptionIndexes, [1]);
-    assert.strictEqual(
-      formatResponseAnswer(questions[0], responses[0]),
-      "Bun",
-    );
+    assert.strictEqual(formatResponseAnswer(questions[0], responses[0]), "Bun");
   });
 });

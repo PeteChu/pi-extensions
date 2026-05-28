@@ -1,6 +1,9 @@
-import path from "node:path";
-import type { PackageSource, ResolvedResource } from "@earendil-works/pi-coding-agent";
+import type {
+  PackageSource,
+  ResolvedResource,
+} from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
+import path from "node:path";
 
 export const EXTENSION_TOGGLE_PACKAGE_NAME = "pi-extension-toggle";
 
@@ -31,7 +34,9 @@ export interface FilteredExtensionOption {
 }
 
 export function isToggleableExtension(resource: ResolvedResource): boolean {
-  return resource.metadata.scope === "user" || resource.metadata.scope === "project";
+  return (
+    resource.metadata.scope === "user" || resource.metadata.scope === "project"
+  );
 }
 
 export function scopeLabel(scope: string): string {
@@ -112,9 +117,7 @@ export function toggleTopLevelResourcePaths(
 
 export const toggleTopLevelExtensionPaths = toggleTopLevelResourcePaths;
 
-export function toggleAllTopLevelResources(
-  enable: boolean,
-): string[] {
+export function toggleAllTopLevelResources(enable: boolean): string[] {
   if (enable) {
     return [];
   }
@@ -267,7 +270,9 @@ function uniqueSearchParts(parts: Array<string | undefined>): string {
   return values.join(" ");
 }
 
-export function buildExtensionOptionSearchText(option: ExtensionOption): string {
+export function buildExtensionOptionSearchText(
+  option: ExtensionOption,
+): string {
   const resourceParts = option.resources.flatMap((resource) => [
     resource.path,
     path.basename(resource.path),
@@ -328,11 +333,17 @@ export function buildSourceOptions(
 ): ExtensionOption[] {
   // Filter out the toggle manager extension and non-toggleable resources
   const allResources: ResourceWithType[] = [
-    ...extensions.map((resource) => ({ resource, type: "extensions" as const })),
+    ...extensions.map((resource) => ({
+      resource,
+      type: "extensions" as const,
+    })),
     ...skills.map((resource) => ({ resource, type: "skills" as const })),
     ...prompts.map((resource) => ({ resource, type: "prompts" as const })),
     ...themes.map((resource) => ({ resource, type: "themes" as const })),
-  ].filter(({ resource }) => isToggleableExtension(resource) && !isExtensionToggleManager(resource));
+  ].filter(
+    ({ resource }) =>
+      isToggleableExtension(resource) && !isExtensionToggleManager(resource),
+  );
 
   const groups = new Map<string, ResourceWithType[]>();
 
@@ -370,13 +381,18 @@ export function buildSourceOptions(
         : undefined;
     const label = getExtensionSourceLabel(firstResource, first.type, pattern);
 
+    const scope = firstResource.metadata.scope;
+    assertToggleableScope(scope);
+
     options.push({
       label,
       resources: entries.map((entry) => entry.resource),
-      sourceKey: firstResource.metadata.origin === "package" ? key : pattern ?? key,
-      scope: firstResource.metadata.scope,
+      sourceKey:
+        firstResource.metadata.origin === "package" ? key : (pattern ?? key),
+      scope,
       origin: firstResource.metadata.origin,
-      resourceType: firstResource.metadata.origin === "top-level" ? first.type : undefined,
+      resourceType:
+        firstResource.metadata.origin === "top-level" ? first.type : undefined,
     });
   }
 

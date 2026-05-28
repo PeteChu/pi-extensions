@@ -1,7 +1,6 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
-import path from "node:path";
 import type { ResolvedResource } from "@earendil-works/pi-coding-agent";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   buildExtensionOptionSearchText,
   buildSourceOptions,
@@ -21,7 +20,13 @@ describe("extension-toggle utils", () => {
   it("removes existing patterns for the same exact resource", () => {
     assert.deepEqual(
       withoutExistingPattern(
-        ["extensions/a.ts", "!extensions/a.ts", "+extensions/a.ts", "-extensions/a.ts", "extensions/b.ts"],
+        [
+          "extensions/a.ts",
+          "!extensions/a.ts",
+          "+extensions/a.ts",
+          "-extensions/a.ts",
+          "extensions/b.ts",
+        ],
         "extensions/a.ts",
       ),
       ["extensions/b.ts"],
@@ -30,12 +35,20 @@ describe("extension-toggle utils", () => {
 
   it("toggles top-level extension paths with exact overrides", () => {
     assert.deepEqual(
-      toggleTopLevelExtensionPaths(["-extensions/old.ts"], "extensions/new.ts", false),
+      toggleTopLevelExtensionPaths(
+        ["-extensions/old.ts"],
+        "extensions/new.ts",
+        false,
+      ),
       ["-extensions/old.ts", "-extensions/new.ts"],
     );
 
     assert.deepEqual(
-      toggleTopLevelExtensionPaths(["-extensions/new.ts"], "extensions/new.ts", true),
+      toggleTopLevelExtensionPaths(
+        ["-extensions/new.ts"],
+        "extensions/new.ts",
+        true,
+      ),
       ["+extensions/new.ts"],
     );
   });
@@ -289,12 +302,16 @@ describe("extension-toggle utils", () => {
     assert.equal(globalExtOpt.scope, "user");
     assert.equal(globalExtOpt.resourceType, "extensions");
 
-    const projectExtOpt = options.find((o) => o.sourceKey === "extensions/b.ts");
+    const projectExtOpt = options.find(
+      (o) => o.sourceKey === "extensions/b.ts",
+    );
     assert.ok(projectExtOpt);
     assert.equal(projectExtOpt.label, "b.ts (project extension)");
     assert.equal(projectExtOpt.resourceType, "extensions");
 
-    const globalSkillOpt = options.find((o) => o.sourceKey === "skills/skill.md");
+    const globalSkillOpt = options.find(
+      (o) => o.sourceKey === "skills/skill.md",
+    );
     assert.ok(globalSkillOpt);
     assert.equal(globalSkillOpt.label, "skill.md (global skill)");
     assert.equal(globalSkillOpt.resourceType, "skills");
@@ -386,11 +403,15 @@ describe("extension-toggle utils", () => {
     );
 
     assert.deepEqual(
-      filterExtensionOptions(options, "alpha").map((entry) => entry.option.sourceKey),
+      filterExtensionOptions(options, "alpha").map(
+        (entry) => entry.option.sourceKey,
+      ),
       ["npm:alpha-extension"],
     );
     assert.deepEqual(
-      filterExtensionOptions(options, "code review").map((entry) => entry.option.sourceKey),
+      filterExtensionOptions(options, "code review").map(
+        (entry) => entry.option.sourceKey,
+      ),
       ["npm:reviewer-suite"],
     );
   });
@@ -422,11 +443,15 @@ describe("extension-toggle utils", () => {
     );
 
     assert.deepEqual(
-      filterExtensionOptions(options, "ai commit").map((entry) => entry.option.label),
+      filterExtensionOptions(options, "ai commit").map(
+        (entry) => entry.option.label,
+      ),
       ["ai-commit (global extension)"],
     );
     assert.deepEqual(
-      filterExtensionOptions(options, "release notes").map((entry) => entry.option.label),
+      filterExtensionOptions(options, "release notes").map(
+        (entry) => entry.option.label,
+      ),
       ["release-notes (global skill)"],
     );
     assert.deepEqual(filterExtensionOptions(options, "does-not-exist"), []);
@@ -479,7 +504,13 @@ describe("extension-toggle utils", () => {
     );
 
     assert.equal(result.changed, true);
-    const pkg = result.packages[0] as { source: string; extensions?: string[]; skills?: string[]; prompts?: string[]; themes?: string[] };
+    const pkg = result.packages[0] as {
+      source: string;
+      extensions?: string[];
+      skills?: string[];
+      prompts?: string[];
+      themes?: string[];
+    };
     assert.deepEqual(pkg.extensions, []);
     assert.deepEqual(pkg.skills, []);
     assert.deepEqual(pkg.prompts, []);
@@ -502,7 +533,13 @@ describe("extension-toggle utils", () => {
     );
 
     assert.equal(result.changed, true);
-    const pkg = result.packages[0] as { source: string; extensions?: string[]; skills?: string[]; prompts?: string[]; themes?: string[] };
+    const pkg = result.packages[0] as {
+      source: string;
+      extensions?: string[];
+      skills?: string[];
+      prompts?: string[];
+      themes?: string[];
+    };
     assert.equal(pkg.extensions, undefined);
     assert.equal(pkg.skills, undefined);
     assert.equal(pkg.prompts, undefined);
@@ -517,7 +554,13 @@ describe("extension-toggle utils", () => {
     );
 
     assert.equal(result.changed, true);
-    const pkg = result.packages[0] as { source: string; extensions?: string[] };
+    const pkg = result.packages[0] as {
+      source: string;
+      extensions?: string[];
+      skills?: string[];
+      prompts?: string[];
+      themes?: string[];
+    };
     assert.deepEqual(pkg.extensions, []);
     assert.deepEqual(pkg.skills, []);
     assert.deepEqual(pkg.prompts, []);

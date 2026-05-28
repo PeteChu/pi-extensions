@@ -1,71 +1,14 @@
-import { createRequire } from "node:module";
-import os from "node:os";
-import path from "node:path";
-
-const require = createRequire(import.meta.url);
-
-type Component = {
-  handleInput: (data: string) => void;
-  render: (width: number) => string[];
-  invalidate: () => void;
-};
-
-type TUI = { requestRender: () => void };
-
-type EditorTheme = {
-  borderColor: (text: string) => string;
-  selectList: {
-    matchHighlight?: (text: string) => string;
-    itemSecondary?: (text: string) => string;
-  };
-};
-
-const PiTui = ((): {
-  Editor: new (
-    tui: TUI,
-    theme: EditorTheme,
-  ) => {
-    disableSubmit?: boolean;
-    onChange?: () => void;
-    setText: (text: string) => void;
-    getText: () => string;
-    render: (width: number) => string[];
-    handleInput: (data: string) => void;
-  };
-  Key: {
-    enter: string;
-    tab: string;
-    escape: string;
-    up: string;
-    down: string;
-    left: string;
-    right: string;
-    ctrl: (key: string) => string;
-    shift: (key: string) => string;
-  };
-  matchesKey: (input: string, key: string) => boolean;
-  truncateToWidth: (text: string, width: number, ellipsis?: string) => string;
-  visibleWidth: (text: string) => number;
-  wrapTextWithAnsi: (text: string, width: number) => string[];
-} => {
-  try {
-    return require("@earendil-works/pi-tui");
-  } catch (error) {
-    const code = (error as { code?: string }).code;
-    if (code !== "MODULE_NOT_FOUND") throw error;
-    return require(
-      path.join(
-        os.homedir(),
-        ".bun",
-        "install",
-        "global",
-        "node_modules",
-        "@earendil-works",
-        "pi-tui",
-      ),
-    );
-  }
-})();
+import {
+  Editor,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+  type Component,
+  type EditorTheme,
+  type TUI,
+} from "@earendil-works/pi-tui";
 
 export interface QnAOption {
   label: string;
@@ -341,14 +284,7 @@ export class QnATuiComponent<
   private questions: TQuestion[];
   private responses: QnAResponse[];
   private currentIndex = 0;
-  private editor: {
-    disableSubmit?: boolean;
-    onChange?: () => void;
-    setText: (text: string) => void;
-    getText: () => string;
-    render: (width: number) => string[];
-    handleInput: (data: string) => void;
-  };
+  private editor: Editor;
   private tui: TUI;
   private onDone: (result: QnAResult | null) => void;
   private showingConfirmation = false;
@@ -433,10 +369,15 @@ export class QnATuiComponent<
 
     const editorTheme: EditorTheme = {
       borderColor: this.dim,
-      selectList: { matchHighlight: this.accent, itemSecondary: this.muted },
+      selectList: {
+        selectedPrefix: this.accent,
+        selectedText: this.accent,
+        description: this.muted,
+        scrollInfo: this.dim,
+        noMatch: this.warning,
+      },
     };
 
-    const { Editor } = PiTui;
     this.editor = new Editor(tui, editorTheme);
     this.editor.disableSubmit = true;
     this.editor.onChange = () => {
@@ -665,7 +606,6 @@ export class QnATuiComponent<
   }
 
   handleInput(data: string): void {
-    const { Key, matchesKey } = PiTui;
     if (this.showingConfirmation) {
       if (matchesKey(data, Key.enter)) return this.submit();
       if (matchesKey(data, Key.ctrl("c"))) return this.cancel();
@@ -800,7 +740,6 @@ export class QnATuiComponent<
   }
 
   private renderTabs(contentWidth: number): string {
-    const { truncateToWidth, visibleWidth } = PiTui;
     const separator = this.dim(" ");
     const tabWidth = Math.max(5, String(this.questions.length).length + 5);
     const makeTab = (index: number): string => {
@@ -849,7 +788,6 @@ export class QnATuiComponent<
   }
 
   private renderQuestionBody(contentWidth: number): string[] {
-    const { truncateToWidth, wrapTextWithAnsi } = PiTui;
     const lines: string[] = [];
     const question = this.getCurrentQuestion();
     const response = this.responses[this.currentIndex];
@@ -963,7 +901,6 @@ export class QnATuiComponent<
   }
 
   private renderReviewBody(contentWidth: number): string[] {
-    const { truncateToWidth, wrapTextWithAnsi } = PiTui;
     const lines: string[] = [];
     lines.push(
       `${this.warning("Review")} ${this.dim("Press Enter to submit, Esc to edit")}`,
@@ -992,7 +929,6 @@ export class QnATuiComponent<
   }
 
   render(width: number): string[] {
-    const { truncateToWidth, visibleWidth } = PiTui;
     if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 
     const safeWidth = Math.max(24, width);

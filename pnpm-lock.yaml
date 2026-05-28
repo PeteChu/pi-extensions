@@ -26,6 +26,9 @@ importers:
       typebox:
         specifier: '*'
         version: 1.1.38
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
 
   ai-commit:
     dependencies:
@@ -1024,6 +1027,11 @@ packages:
 
   typebox@1.1.38:
     resolution: {integrity: sha512-pZ0aQPmMmXoUvSbeuWf/Hzsc+avNw/Zd6VeE8CFgkVGWyuHPJvqeJJDeJqLve+K70LvjYIoleGcoJHPT17cWoA==}
+
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
 
   uint8array-extras@1.5.0:
     resolution: {integrity: sha512-rvKSBiC5zqCCiDZ9kAOszZcDvdAHwwIKJG33Ykj43OKcWsnmcBRL09YTU4nOeHZ8Y2a7l1MgTd08SBe9A8Qj6A==}
@@ -2139,6 +2147,8 @@ snapshots:
       fsevents: 2.3.3
 
   typebox@1.1.38: {}
+
+  typescript@6.0.3: {}
 
   uint8array-extras@1.5.0: {}
 

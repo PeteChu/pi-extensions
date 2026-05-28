@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   createDraftStore,
   getLatestDraft,
@@ -91,6 +91,8 @@ describe("createDraftStore", () => {
         customText: "",
         selectionTouched: true,
         committed: true,
+        selectionMode: "single",
+        selectedOptionIndexes: [1],
       },
     ]);
     store.clear();
@@ -127,7 +129,7 @@ describe("createDraftStore", () => {
         customText: "",
         selectionTouched: true,
         committed: true,
-        selectionMode: 'multiple',
+        selectionMode: "multiple",
         selectedOptionIndexes: [0, 1],
       },
     ]);
@@ -135,7 +137,7 @@ describe("createDraftStore", () => {
     assert.strictEqual(entries.length, 1);
     const payload = entries[0]?.payload as AnswerDraft;
     assert.strictEqual(payload.version, 3);
-    assert.strictEqual(payload.responses?.[0]?.selectionMode, 'multiple');
+    assert.strictEqual(payload.responses?.[0]?.selectionMode, "multiple");
     assert.deepEqual(payload.responses?.[0]?.selectedOptionIndexes, [0, 1]);
   });
 
@@ -165,11 +167,8 @@ describe("createDraftStore", () => {
       true,
     );
 
-    assert.strictEqual(responses[0].selectionMode, 'single');
+    assert.strictEqual(responses[0].selectionMode, "single");
     assert.deepEqual(responses[0].selectedOptionIndexes, [1]);
-    assert.strictEqual(
-      formatResponseAnswer(QUESTIONS[0], responses[0]),
-      "Bun",
-    );
+    assert.strictEqual(formatResponseAnswer(QUESTIONS[0], responses[0]), "Bun");
   });
 });
