@@ -9,6 +9,7 @@ import {
   Key,
   matchesKey,
   truncateToWidth,
+  visibleWidth,
   type Component,
 } from "@earendil-works/pi-tui";
 import {
@@ -110,7 +111,8 @@ export class ExtensionMultiSelect implements Component {
           option,
           enabled: this.checkedIndexes.has(index),
           changed:
-            this.checkedIndexes.has(index) !== this.initialCheckedIndexes.has(index),
+            this.checkedIndexes.has(index) !==
+            this.initialCheckedIndexes.has(index),
         }))
         .filter((selection) => selection.changed)
         .map(({ option, enabled }) => ({ option, enabled })),
@@ -128,21 +130,25 @@ export class ExtensionMultiSelect implements Component {
   render(width: number): string[] {
     const filtered = this.filteredOptions;
     this.clampSelectedIndex(filtered);
+    const safeWidth = Math.max(0, width);
+    const fitLine = (line: string): string =>
+      visibleWidth(line) > safeWidth
+        ? truncateToWidth(line, safeWidth, "...")
+        : line;
     const searchStatus = this.searchMode ? "active" : "inactive";
-    const queryDisplay = this.searchQuery.length > 0 ? this.searchQuery : "(empty)";
+    const queryDisplay =
+      this.searchQuery.length > 0 ? this.searchQuery : "(empty)";
     const controls = this.searchMode
       ? "type: search · backspace/delete: remove · ctrl+u: clear · esc: close search · enter: apply"
       : "↑/↓ or j/k: move · / or ctrl+f: search · space: check/uncheck · enter: apply · esc: cancel";
     const lines = [
-      "Enable or disable sources",
-      `Search (${searchStatus}): ${queryDisplay}`,
+      fitLine("Enable or disable sources"),
+      fitLine(`Search (${searchStatus}): ${queryDisplay}`),
       "",
     ];
 
     if (filtered.length === 0) {
-      lines.push(
-        truncateToWidth(`No sources match "${this.searchQuery}"`, width, "..."),
-      );
+      lines.push(fitLine(`No sources match "${this.searchQuery}"`));
     } else {
       const startIndex = Math.max(
         0,
@@ -161,24 +167,28 @@ export class ExtensionMultiSelect implements Component {
         const selected = checked ? "[x]" : "[ ]";
         const status = checked ? "Enabled" : "Disabled";
         lines.push(
-          truncateToWidth(`${cursor} ${selected} ${option.label} · ${status}`, width, "..."),
+          fitLine(`${cursor} ${selected} ${option.label} · ${status}`),
         );
       }
     }
 
     if (filtered.length > this.maxVisible) {
       lines.push(
-        `(${this.selectedFilteredIndex + 1}/${filtered.length} shown, ${this.options.length} total) ${this.checkedIndexes.size} enabled`,
+        fitLine(
+          `(${this.selectedFilteredIndex + 1}/${filtered.length} shown, ${this.options.length} total) ${this.checkedIndexes.size} enabled`,
+        ),
       );
     } else if (this.searchQuery.trim().length > 0) {
       lines.push(
-        `${filtered.length}/${this.options.length} shown · ${this.checkedIndexes.size} enabled`,
+        fitLine(
+          `${filtered.length}/${this.options.length} shown · ${this.checkedIndexes.size} enabled`,
+        ),
       );
     } else {
-      lines.push(`${this.checkedIndexes.size} enabled`);
+      lines.push(fitLine(`${this.checkedIndexes.size} enabled`));
     }
 
-    lines.push(controls);
+    lines.push(fitLine(controls));
 
     return lines;
   }
@@ -261,7 +271,9 @@ async function selectExtensionToggles(
   });
 }
 
-export async function discoverExtensionResources(ctx: Pick<ExtensionCommandContext, "cwd">) {
+export async function discoverExtensionResources(
+  ctx: Pick<ExtensionCommandContext, "cwd">,
+) {
   const agentDir = getAgentDir();
   const settingsManager = SettingsManager.create(ctx.cwd, agentDir);
   const packageManager = new DefaultPackageManager({
@@ -407,7 +419,10 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
   }
 
   if (changedOptions.length === 0) {
-    ctx.ui.notify("Could not update settings for the selected sources", "error");
+    ctx.ui.notify(
+      "Could not update settings for the selected sources",
+      "error",
+    );
     return;
   }
 
@@ -423,7 +438,9 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
     return;
   }
 
-  const enabledCount = changedOptions.filter((selection) => selection.enabled).length;
+  const enabledCount = changedOptions.filter(
+    (selection) => selection.enabled,
+  ).length;
   const disabledCount = changedOptions.length - enabledCount;
   const summary = [
     enabledCount > 0 ? `${enabledCount} enabled` : undefined,
@@ -432,7 +449,10 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
     .filter((part): part is string => part !== undefined)
     .join(", ");
 
-  ctx.ui.notify(`Updated ${changedOptions.length} source(s): ${summary}`, "info");
+  ctx.ui.notify(
+    `Updated ${changedOptions.length} source(s): ${summary}`,
+    "info",
+  );
 
   const reload = await ctx.ui.confirm(
     "Reload now?",
@@ -449,7 +469,8 @@ async function extensionToggleHandler(ctx: ExtensionCommandContext) {
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand(COMMAND_NAME, {
-    description: "Enable or disable installed Pi extensions, skills, prompts, and themes",
+    description:
+      "Enable or disable installed Pi extensions, skills, prompts, and themes",
     handler: async (_args, ctx) => extensionToggleHandler(ctx),
   });
 }

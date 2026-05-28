@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { ResolvedResource } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import extensionToggle, {
   discoverExtensionResources,
   ExtensionMultiSelect,
@@ -93,7 +94,39 @@ describe("extension-toggle extension", () => {
     assert.match(render, /answer/);
     assert.match(render, /reviewer/);
   });
+
+  it("keeps rendered lines within width for long labels and narrow terminals", () => {
+    const width = 20;
+    const options = Array.from({ length: 16 }, (_, index) => ({
+      ...longLabelOption(index),
+      label: `extremely-long-extension-label-${index}-with-extra-detail-and-wide-text-測試`,
+    }));
+    const component = new ExtensionMultiSelect(options, () => {});
+
+    assertRenderedLinesFitWidth(component.render(width), width);
+  });
+
+  it("keeps rendered lines within width for long search queries and empty results", () => {
+    const width = 18;
+    const component = new ExtensionMultiSelect([longLabelOption(0)], () => {});
+
+    component.handleInput("/");
+    for (const character of "query-that-is-much-longer-than-the-terminal-width") {
+      component.handleInput(character);
+    }
+
+    assertRenderedLinesFitWidth(component.render(width), width);
+  });
 });
+
+function assertRenderedLinesFitWidth(lines: string[], width: number): void {
+  for (const [index, line] of lines.entries()) {
+    assert.ok(
+      visibleWidth(line) <= width,
+      `line ${index} exceeds width ${width}: ${visibleWidth(line)} > ${width}`,
+    );
+  }
+}
 
 function testOptions(): ExtensionOption[] {
   return [
@@ -149,6 +182,26 @@ function testOptions(): ExtensionOption[] {
       resourceType: "skills",
     },
   ];
+}
+
+function longLabelOption(index: number): ExtensionOption {
+  return {
+    label: `long-label-${index}`,
+    resources: [
+      resource({
+        path: `/home/user/.pi/agent/extensions/long-label-${index}/index.ts`,
+        enabled: index % 2 === 0,
+        source: "auto",
+        scope: "user",
+        origin: "top-level",
+        baseDir: "/home/user/.pi/agent",
+      }),
+    ],
+    sourceKey: `extensions/long-label-${index}/index.ts`,
+    scope: "user",
+    origin: "top-level",
+    resourceType: "extensions",
+  };
 }
 
 function resource(options: {
