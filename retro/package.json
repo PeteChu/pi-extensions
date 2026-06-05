@@ -1,6 +1,6 @@
 {
   "name": "@petechu/pi-retro",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Generate a coaching retrospective report for the current Pi session",
   "homepage": "https://github.com/PeteChu/pi-extensions",

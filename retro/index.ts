@@ -341,27 +341,33 @@ export function buildRetroPrompt(
 ): string {
   return `You are generating a private retrospective report for this Pi coding-agent session.
 
-Use the active model normally. Do not ask the user for API keys. Do not reply with the report in chat.
+This is an internal /retro request from the extension. The transcript and metrics below are the complete input. Generate the retrospective report only; do not ask follow-up questions (including whether to proceed or whether the user wants changes), explain or review this retro prompt, continue the original coding task, inspect files, edit files, run commands, search, or use any tool except ${SAVE_REPORT_TOOL_NAME}. Do not reply with the report in chat.
 
 Your final action MUST be calling the ${SAVE_REPORT_TOOL_NAME} tool with requestId "${requestId}" and these sections:
-- sessionSummary
-- timeline
-- whatWentWell
-- couldImprove
-- whatNotToDo
-- betterPromptExamples
-- agentBehaviorNotes
-- actionableTakeaways
+- sessionSummary: one concise paragraph describing the session outcome and collaboration quality.
+- timeline: chronological, high-signal events from request to outcome.
+- whatWentWell: concrete behaviors that helped the user.
+- couldImprove: user-steerable collaboration improvements; include likely causes only when they help the user decide how to steer next time.
+- whatNotToDo: user-controllable prompting or session-management anti-patterns to avoid in similar future sessions.
+- betterPromptExamples: short rewrites of user prompts using only information the user could reasonably know or control, with why each rewrite helps.
+- agentBehaviorNotes: diagnostic observations about agent behavior, grounded in evidence; explain why drift likely happened, but do not turn agent-only fixes into user action items.
+- actionableTakeaways: practical next steps the user can personally do or ask for in future sessions.
 
-Focus on the collaboration from the user's first prompt onward: how the agent interpreted it, where the agent did or did not match the user's intention, where later user steering corrected course, and how the user can prompt better next time.
+Focus on the collaboration from the user's first prompt onward: interpretation, alignment with user intent, later user steering, and how the user can prompt or steer better next time. Treat the user as the report's primary actor: action-oriented sections must describe what the user can control, not what the agent should have done differently.
 
 Rules:
-- Be specific and actionable.
+- Be specific, balanced, and actionable.
+- Ground every observation in the transcript or metrics; do not invent facts.
+- For unintended behavior or results, explain the likely cause: ambiguous user input, missing constraints, agent over-assumption, model reasoning limitation, tooling/context constraint, or a mix of these.
+- Attribute causes cautiously. Use "likely" unless the transcript makes the cause explicit, and avoid blaming the user or the model without evidence.
+- For each important drift or misunderstanding, include how the user could steer better next time, such as clarifying success criteria, naming known constraints, correcting assumptions early, asking the agent to restate its plan, or asking the agent to inspect and verify existing behavior.
+- Keep agent-only critique in agentBehaviorNotes. In couldImprove, whatNotToDo, betterPromptExamples, and actionableTakeaways, rewrite it as user-controllable steering. For example, prefer "Ask the agent to inspect nearby tests before editing" over "The agent should have read the tests."
+- For hidden tests, unknown internals, extension-managed behavior, exact assertions, or details only discoverable by inspecting files or running tests, do not imply the user should have known them; suggest user-controllable steering like "preserve existing behavior and run the test suite".
 - Keep raw excerpts short. Do not quote long prompts, tool outputs, file contents, or secrets.
 - Better prompt examples are required when the transcript contains user prompts.
-- Do not invent facts beyond the transcript and metrics.
+- Use empty arrays instead of filler when there is no evidence for a list section.
 - Mention agent issues only when they affected the user's outcome or steering needs.
-- Call ${SAVE_REPORT_TOOL_NAME} exactly once as the final action.
+- Call ${SAVE_REPORT_TOOL_NAME} exactly once as the only tool call and final action.
 
 Metrics:
 ${metricsForPrompt(metrics)}
@@ -852,12 +858,12 @@ export function renderHtmlReport(
   </section>
 
   <section class="section">
-    <h2>What Could Be Improved</h2>
+    <h2>User-Steerable Improvements</h2>
     ${renderList(analysis.couldImprove)}
   </section>
 
   <section class="section">
-    <h2>What Not To Do</h2>
+    <h2>What You Can Avoid</h2>
     ${renderList(analysis.whatNotToDo)}
   </section>
 
@@ -868,12 +874,12 @@ export function renderHtmlReport(
   </section>` : ''}
 
   <section class="section">
-    <h2>Agent Behavior</h2>
+    <h2>Agent Behavior (Diagnostic)</h2>
     ${renderList(analysis.agentBehaviorNotes)}
   </section>
 
   <section class="section">
-    <h2>Actionable Takeaways</h2>
+    <h2>Your Actionable Takeaways</h2>
     ${renderList(analysis.actionableTakeaways)}
   </section>
 
