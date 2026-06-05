@@ -5,3 +5,4 @@ packages:
   - "package-usage"
   - "code-wiki"
   - "rewrite"
+  - "retro"

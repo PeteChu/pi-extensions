@@ -1,0 +1,23 @@
+{
+  "name": "@petechu/pi-retro",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Generate a coaching retrospective report for the current Pi session",
+  "homepage": "https://github.com/PeteChu/pi-extensions",
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
+  "scripts": {
+    "test": "node --import tsx --test ./tests/index.test.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}

@@ -1,4 +1,4 @@
-EXTENSIONS := ai-commit answer extension-toggle package-usage code-wiki rewrite
+EXTENSIONS := ai-commit answer extension-toggle package-usage code-wiki rewrite retro
 TSC_FLAGS := --noEmit --target ES2022 --module ESNext --moduleResolution bundler --strict --skipLibCheck
 
 .PHONY: help typecheck test check typecheck-all test-all check-all require-ext

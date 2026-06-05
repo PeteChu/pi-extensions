@@ -55,6 +55,14 @@ pi install npm:@petechu/pi-package-usage
 pi install npm:@petechu/pi-rewrite
 ```
 
+## 🧭 retro — `/retro`
+
+> Generate an HTML retrospective report for the current session, with metrics and coaching on how to prompt the coding agent better.
+
+```bash
+pi install npm:@petechu/pi-retro
+```
+
 ---
 
 ## 🎨 Skills
