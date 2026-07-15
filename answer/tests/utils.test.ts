@@ -9,9 +9,46 @@ import {
   normalizeTemplates,
   parseExtractionResult,
   parseExtractionToolCallResult,
+  parseModelThinkingSuffix,
   questionsMatch,
   resolveNumericOptionShortcut,
 } from "../utils";
+
+describe("parseModelThinkingSuffix", () => {
+  it("parses every Pi-supported thinking level from the final colon", () => {
+    for (const thinkingLevel of [
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ] as const) {
+      assert.deepEqual(
+        parseModelThinkingSuffix(`model:variant:${thinkingLevel}`),
+        {
+          modelId: "model:variant",
+          thinkingLevel,
+        },
+      );
+    }
+  });
+
+  it("returns no override when the suffix is absent or unrecognized", () => {
+    assert.strictEqual(parseModelThinkingSuffix("gpt-5.6-luna"), undefined);
+    assert.strictEqual(
+      parseModelThinkingSuffix("gpt-5.6-luna:extreme"),
+      undefined,
+    );
+  });
+
+  it("recognizes off as an explicit level", () => {
+    assert.deepEqual(parseModelThinkingSuffix("gpt-5.6-luna:off"), {
+      modelId: "gpt-5.6-luna",
+      thinkingLevel: "off",
+    });
+  });
+});
 
 describe("parseExtractionResult", () => {
   it("extracts JSON from code blocks", () => {

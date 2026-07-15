@@ -1,10 +1,11 @@
-import { describe, it } from "node:test";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { describe, it } from "node:test";
 import aiCommit, {
   getAiCommitSettingsPaths,
   reviewCommitMessage,
+  selectGenerationModel,
 } from "../index";
 
 describe("ai-commit extension", () => {
@@ -31,6 +32,100 @@ describe("getAiCommitSettingsPaths", () => {
       globalPath: path.join(getAgentDir(), "settings.json"),
       projectPath: path.join(cwd, ".pi", "settings.json"),
     });
+  });
+});
+
+describe("selectGenerationModel", () => {
+  it("looks up a suffixed preference by its base model ID", async () => {
+    const currentModel = createModel("current");
+    const configuredModel = createModel("gpt-5.6-luna");
+    const lookups: Array<[string, string]> = [];
+
+    const result = await selectGenerationModel(
+      currentModel as never,
+      {
+        find(provider, modelId) {
+          lookups.push([provider, modelId]);
+          return modelId === configuredModel.id
+            ? (configuredModel as never)
+            : undefined;
+        },
+        getApiKeyAndHeaders: async () => ({ ok: true }),
+      },
+      [{ provider: "openai-codex", id: "gpt-5.6-luna:low" }],
+    );
+
+    assert.deepEqual(lookups, [["openai-codex", "gpt-5.6-luna"]]);
+    assert.strictEqual(result.model, configuredModel);
+    assert.strictEqual(result.thinkingLevel, "low");
+  });
+
+  it("advances to the next preference when authentication fails", async () => {
+    const currentModel = createModel("current");
+    const firstModel = createModel("first");
+    const secondModel = createModel("second");
+    const authenticated: string[] = [];
+
+    const result = await selectGenerationModel(
+      currentModel as never,
+      {
+        find(_provider, modelId) {
+          if (modelId === firstModel.id) return firstModel as never;
+          if (modelId === secondModel.id) return secondModel as never;
+          return undefined;
+        },
+        getApiKeyAndHeaders: async (model) => {
+          authenticated.push(model.id);
+          return { ok: model.id === secondModel.id };
+        },
+      },
+      [
+        { provider: "provider-a", id: "first:high" },
+        { provider: "provider-b", id: "second:minimal" },
+      ],
+    );
+
+    assert.deepEqual(authenticated, ["first", "second"]);
+    assert.strictEqual(result.model, secondModel);
+    assert.strictEqual(result.thinkingLevel, "minimal");
+  });
+
+  it("uses unsuffixed preferences without a reasoning override", async () => {
+    const currentModel = createModel("current");
+    const configuredModel = createModel("gpt-5.6-luna");
+    const lookups: Array<[string, string]> = [];
+
+    const result = await selectGenerationModel(
+      currentModel as never,
+      {
+        find(provider, modelId) {
+          lookups.push([provider, modelId]);
+          return modelId === configuredModel.id
+            ? (configuredModel as never)
+            : undefined;
+        },
+        getApiKeyAndHeaders: async () => ({ ok: true }),
+      },
+      [{ provider: "openai-codex", id: "gpt-5.6-luna" }],
+    );
+
+    assert.deepEqual(lookups, [["openai-codex", "gpt-5.6-luna"]]);
+    assert.deepEqual(result, { model: configuredModel });
+  });
+
+  it("falls back to the current model when no suffixed model is usable", async () => {
+    const currentModel = createModel("current");
+
+    const result = await selectGenerationModel(
+      currentModel as never,
+      {
+        find: () => undefined,
+        getApiKeyAndHeaders: async () => ({ ok: true }),
+      },
+      [{ provider: "openai-codex", id: "missing:medium" }],
+    );
+
+    assert.deepEqual(result, { model: currentModel });
   });
 });
 
@@ -85,6 +180,10 @@ describe("reviewCommitMessage", () => {
     assert.deepEqual(result, { action: "cancel" });
   });
 });
+
+function createModel(id: string) {
+  return { id, provider: "test-provider" };
+}
 
 function createReviewContext({
   choices,

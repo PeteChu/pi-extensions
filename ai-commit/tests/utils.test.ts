@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   DEFAULT_GENERATION_MODELS,
   DEFAULT_GENERATION_PROMPT,
@@ -9,6 +9,7 @@ import {
   isConventionalCommitSubject,
   isNoisyFilePath,
   mergeAiCommitSettings,
+  parseModelThinkingSuffix,
   parseNameStatusZ,
   parseNumstatZ,
   prepareStagedDiffs,
@@ -20,7 +21,10 @@ describe("mergeAiCommitSettings", () => {
 
     assert.strictEqual(settings.systemPrompt, DEFAULT_GENERATION_PROMPT);
     assert.deepEqual(settings.generationModels, DEFAULT_GENERATION_MODELS);
-    assert.match(settings.systemPrompt, /Generate a concise git commit message/);
+    assert.match(
+      settings.systemPrompt,
+      /Generate a concise git commit message/,
+    );
     assert.match(settings.systemPrompt, /type\(scope\): description/);
   });
 
@@ -47,6 +51,42 @@ describe("mergeAiCommitSettings", () => {
   });
 });
 
+describe("parseModelThinkingSuffix", () => {
+  it("parses every Pi-supported thinking level from the final colon", () => {
+    for (const thinkingLevel of [
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ] as const) {
+      assert.deepEqual(
+        parseModelThinkingSuffix(`model:variant:${thinkingLevel}`),
+        {
+          modelId: "model:variant",
+          thinkingLevel,
+        },
+      );
+    }
+  });
+
+  it("returns no override when the suffix is absent or unrecognized", () => {
+    assert.strictEqual(parseModelThinkingSuffix("gpt-5.6-luna"), undefined);
+    assert.strictEqual(
+      parseModelThinkingSuffix("gpt-5.6-luna:extreme"),
+      undefined,
+    );
+  });
+
+  it("recognizes off as an explicit level", () => {
+    assert.deepEqual(parseModelThinkingSuffix("gpt-5.6-luna:off"), {
+      modelId: "gpt-5.6-luna",
+      thinkingLevel: "off",
+    });
+  });
+});
+
 describe("staged metadata parsers", () => {
   it("parses name-status records including renames", () => {
     const files = parseNameStatusZ("M\0src/a.ts\0R100\0old.ts\0new.ts\0");
@@ -68,8 +108,20 @@ describe("staged metadata parsers", () => {
     );
 
     assert.deepEqual(files, [
-      { status: "M", path: "src/a.ts", additions: 10, deletions: 2, binary: false },
-      { status: "A", path: "image.png", additions: undefined, deletions: undefined, binary: true },
+      {
+        status: "M",
+        path: "src/a.ts",
+        additions: 10,
+        deletions: 2,
+        binary: false,
+      },
+      {
+        status: "A",
+        path: "image.png",
+        additions: undefined,
+        deletions: undefined,
+        binary: true,
+      },
     ]);
   });
 });
@@ -83,7 +135,10 @@ describe("noisy file detection", () => {
   });
 
   it("supports project skip patterns", () => {
-    assert.strictEqual(isNoisyFilePath("generated/schema.sql", ["generated/*"]), true);
+    assert.strictEqual(
+      isNoisyFilePath("generated/schema.sql", ["generated/*"]),
+      true,
+    );
   });
 });
 
@@ -96,7 +151,13 @@ describe("prepareStagedDiffs", () => {
 
   it("includes small text diffs", () => {
     const prepared = prepareStagedDiffs(
-      [{ status: "M", path: "src/a.ts", diff: "diff --git a/src/a.ts b/src/a.ts\n+hello" }],
+      [
+        {
+          status: "M",
+          path: "src/a.ts",
+          diff: "diff --git a/src/a.ts b/src/a.ts\n+hello",
+        },
+      ],
       settings,
     );
 
@@ -108,7 +169,12 @@ describe("prepareStagedDiffs", () => {
     const prepared = prepareStagedDiffs(
       [
         { status: "M", path: "foo-lock.json", diff: "+lots" },
-        { status: "A", path: "logo.png", binary: true, diff: "Binary files differ" },
+        {
+          status: "A",
+          path: "logo.png",
+          binary: true,
+          diff: "Binary files differ",
+        },
         { status: "M", path: "src/big.ts", diff: "x".repeat(1_001) },
       ],
       settings,
@@ -116,7 +182,11 @@ describe("prepareStagedDiffs", () => {
 
     assert.deepEqual(
       prepared.map((file) => file.skippedReason),
-      ["matches skip pattern", "binary file", "diff exceeds per-file limit (1000 chars)"],
+      [
+        "matches skip pattern",
+        "binary file",
+        "diff exceeds per-file limit (1000 chars)",
+      ],
     );
   });
 
@@ -156,7 +226,10 @@ describe("prompt assembly", () => {
     ]);
 
     assert.doesNotMatch(prompt, /Staged files/);
-    assert.match(prompt, /The diffs below are the complete intended commit context/);
+    assert.match(
+      prompt,
+      /The diffs below are the complete intended commit context/,
+    );
     assert.match(prompt, /Infer the main user-facing behavior from the diffs/);
     assert.match(prompt, /```diff\n\+hello/);
     assert.match(prompt, /package-lock\.json: matches skip pattern/);
@@ -165,7 +238,9 @@ describe("prompt assembly", () => {
 
 describe("cleanupCommitMessage", () => {
   it("returns a single Conventional Commit subject from markdown output", () => {
-    const message = cleanupCommitMessage("```text\nCommit message: Feat(ai-commit): add staged generator.\n```");
+    const message = cleanupCommitMessage(
+      "```text\nCommit message: Feat(ai-commit): add staged generator.\n```",
+    );
 
     assert.strictEqual(message, "feat(ai-commit): add staged generator");
     assert.strictEqual(isConventionalCommitSubject(message), true);
@@ -180,11 +255,15 @@ describe("cleanupCommitMessage", () => {
 
   it("removes prompt-anchored staged wording", () => {
     assert.strictEqual(
-      cleanupCommitMessage("feat(ai-commit): add staged commit message generator"),
+      cleanupCommitMessage(
+        "feat(ai-commit): add staged commit message generator",
+      ),
       "feat(ai-commit): add commit message generator",
     );
     assert.strictEqual(
-      cleanupCommitMessage("feat(ai-commit): generate messages from staged changes"),
+      cleanupCommitMessage(
+        "feat(ai-commit): generate messages from staged changes",
+      ),
       "feat(ai-commit): generate messages from changes",
     );
   });

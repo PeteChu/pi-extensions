@@ -1,7 +1,8 @@
 import {
-  complete,
+  completeSimple,
   type Api,
   type Model,
+  type ModelThinkingLevel,
   type UserMessage,
 } from "@earendil-works/pi-ai";
 import type {
@@ -19,6 +20,7 @@ import {
   cleanupCommitMessage,
   isNoisyFilePath,
   mergeAiCommitSettings,
+  parseModelThinkingSuffix,
   parseNameStatusZ,
   parseNumstatZ,
   prepareStagedDiffs,
@@ -41,7 +43,12 @@ export type CommitMessageReviewResult =
   | { action: "regenerate" }
   | { action: "cancel" };
 
-async function selectGenerationModel(
+export interface GenerationModelSelection {
+  model: Model<Api>;
+  thinkingLevel?: ModelThinkingLevel;
+}
+
+export async function selectGenerationModel(
   currentModel: Model<Api>,
   modelRegistry: {
     find: (provider: string, modelId: string) => Model<Api> | undefined;
@@ -52,20 +59,27 @@ async function selectGenerationModel(
     }>;
   },
   modelPreferences: ModelPreference[],
-): Promise<Model<Api>> {
+): Promise<GenerationModelSelection> {
   for (const preference of modelPreferences) {
-    const model = modelRegistry.find(preference.provider, preference.id);
+    const parsed = parseModelThinkingSuffix(preference.id);
+    const model = modelRegistry.find(
+      preference.provider,
+      parsed?.modelId ?? preference.id,
+    );
     if (!model) {
       continue;
     }
 
     const auth = await modelRegistry.getApiKeyAndHeaders(model);
     if (auth.ok) {
-      return model;
+      return {
+        model,
+        ...(parsed ? { thinkingLevel: parsed.thinkingLevel } : {}),
+      };
     }
   }
 
-  return currentModel;
+  return { model: currentModel };
 }
 
 async function readSettingsFile(
@@ -205,19 +219,21 @@ async function gatherStagedDiffContext(
 async function generateCommitMessage(
   ctx: ExtensionCommandContext,
   settings: ResolvedAiCommitSettings,
-  generationModel: Model<Api>,
+  generationModel: GenerationModelSelection,
   prompt: string,
 ): Promise<string | null> {
   return await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
     const loader = new BorderedLoader(
       tui,
       theme,
-      `Generating commit message using ${generationModel.id}...`,
+      `Generating commit message using ${generationModel.model.id}${generationModel.thinkingLevel ? `:${generationModel.thinkingLevel}` : ""}...`,
     );
     loader.onAbort = () => done(null);
 
     const doGenerate = async () => {
-      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(generationModel);
+      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(
+        generationModel.model,
+      );
       if (!auth.ok) {
         throw new Error(auth.error);
       }
@@ -228,8 +244,13 @@ async function generateCommitMessage(
         timestamp: Date.now(),
       };
 
-      const response = await complete(
-        generationModel,
+      const reasoning =
+        generationModel.thinkingLevel === undefined ||
+        generationModel.thinkingLevel === "off"
+          ? {}
+          : { reasoning: generationModel.thinkingLevel };
+      const response = await completeSimple(
+        generationModel.model,
         {
           systemPrompt: settings.systemPrompt,
           messages: [userMessage],
@@ -238,6 +259,7 @@ async function generateCommitMessage(
           apiKey: auth.apiKey,
           headers: auth.headers,
           signal: loader.signal,
+          ...reasoning,
         },
       );
 

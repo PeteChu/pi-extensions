@@ -50,7 +50,17 @@ If every staged file is skipped, `/commit` warns you but still generates a messa
 
 The extension builds a single prompt containing a summary of all staged files, fenced diffs for included files, and a skipped-file section for anything summarized without a full diff. The default system prompt asks for one Conventional Commit subject line and forbids extra explanation or formatting.
 
-Generation uses the first configured model that exists in Pi's model registry and has working authentication. If none of the configured `generationModels` are available, the extension uses the currently selected Pi model. Model output is cleaned before review: markdown fences, labels, bullets, quotes, trailing periods, and common prompt-anchored wording are removed. If the model does not return a Conventional Commit subject, the extension falls back to a `chore:` subject based on the first cleaned line.
+Generation uses the first configured model that exists in Pi's model registry
+and has working authentication. A valid thinking suffix is removed for registry
+lookup and applied only to this commit-message request; `/commit` does not
+change Pi's active model or thinking level. Unsuffixed model IDs remain
+backward-compatible and run without a reasoning override. If no configured
+`generationModels` preference is usable, the extension uses the currently
+selected Pi model without a reasoning override. Model output is cleaned before
+review: markdown fences, labels, bullets, quotes, trailing periods, and common
+prompt-anchored wording are removed. If the model does not return a
+Conventional Commit subject, the extension falls back to a `chore:` subject
+based on the first cleaned line.
 
 ### Review and commit
 
@@ -71,8 +81,8 @@ The extension reads `aiCommit` settings from Pi's global agent settings and proj
 {
   "aiCommit": {
     "generationModels": [
-      { "provider": "openai-codex", "id": "gpt-5.4-mini" },
-      { "provider": "github-copilot", "id": "gpt-5.4-mini" }
+      { "provider": "openai-codex", "id": "gpt-5.6-luna:low" },
+      { "provider": "github-copilot", "id": "gpt-5.4-mini:off" }
     ],
     "systemPrompt": "Custom Conventional Commit prompt...",
     "skipPatterns": ["*-lock.json", "pnpm-lock.yaml", "generated/*"],
@@ -82,4 +92,14 @@ The extension reads `aiCommit` settings from Pi's global agent settings and proj
 }
 ```
 
-If none of the configured `generationModels` are available, `/commit` falls back to the currently selected Pi model.
+Append a thinking level to the model `id` after its final colon. Valid suffixes
+are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. For example,
+`gpt-5.6-luna:low` looks up the base model `gpt-5.6-luna` and generates with low
+reasoning. The `off` suffix explicitly selects the base model without passing a
+reasoning level.
+
+Unsuffixed model IDs continue to work as before and do not pass a reasoning
+override. An unrecognized final suffix is treated as part of the full legacy
+model ID. If no configured model can be resolved and authenticated, `/commit`
+falls back to Pi's currently selected/default model without passing a reasoning
+level.

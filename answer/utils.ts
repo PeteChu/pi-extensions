@@ -1,5 +1,6 @@
 import {
   validateToolCall,
+  type ModelThinkingLevel,
   type Tool,
   type ToolCall,
 } from "@earendil-works/pi-ai";
@@ -25,6 +26,41 @@ export interface ExtractionResult {
 export interface ModelPreference {
   provider: string;
   id: string;
+}
+
+interface ParsedModelThinkingSuffix {
+  modelId: string;
+  thinkingLevel: ModelThinkingLevel;
+}
+
+const SUPPORTED_THINKING_LEVELS: readonly ModelThinkingLevel[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+];
+
+export function parseModelThinkingSuffix(
+  modelId: string,
+): ParsedModelThinkingSuffix | undefined {
+  const separatorIndex = modelId.lastIndexOf(":");
+  if (separatorIndex <= 0) {
+    return undefined;
+  }
+
+  const baseId = modelId.slice(0, separatorIndex);
+  const suffix = modelId.slice(separatorIndex + 1);
+  if (!isModelThinkingLevel(suffix)) {
+    return undefined;
+  }
+
+  return { modelId: baseId, thinkingLevel: suffix };
+}
+
+function isModelThinkingLevel(value: string): value is ModelThinkingLevel {
+  return SUPPORTED_THINKING_LEVELS.includes(value as ModelThinkingLevel);
 }
 
 export type AnswerTemplateConfig =

@@ -11,9 +11,10 @@
  */
 
 import {
-  complete,
-  type Model,
+  completeSimple,
   type Api,
+  type Model,
+  type ModelThinkingLevel,
   type UserMessage,
 } from "@earendil-works/pi-ai";
 import type {
@@ -43,12 +44,18 @@ import {
   normalizeTemplates,
   parseExtractionResult,
   parseExtractionToolCallResult,
+  parseModelThinkingSuffix,
 } from "./utils";
+
+export interface ExtractionModelSelection {
+  model: Model<Api>;
+  thinkingLevel?: ModelThinkingLevel;
+}
 
 /**
  * Prefer configured extraction models, otherwise fallback to the current model.
  */
-async function selectExtractionModel(
+export async function selectExtractionModel(
   currentModel: Model<Api>,
   modelRegistry: {
     find: (provider: string, modelId: string) => Model<Api> | undefined;
@@ -59,20 +66,27 @@ async function selectExtractionModel(
     }>;
   },
   modelPreferences: { provider: string; id: string }[],
-): Promise<Model<Api>> {
+): Promise<ExtractionModelSelection> {
   for (const preference of modelPreferences) {
-    const model = modelRegistry.find(preference.provider, preference.id);
+    const parsed = parseModelThinkingSuffix(preference.id);
+    const model = modelRegistry.find(
+      preference.provider,
+      parsed?.modelId ?? preference.id,
+    );
     if (!model) {
       continue;
     }
 
     const auth = await modelRegistry.getApiKeyAndHeaders(model);
     if (auth.ok) {
-      return model;
+      return {
+        model,
+        ...(parsed ? { thinkingLevel: parsed.thinkingLevel } : {}),
+      };
     }
   }
 
-  return currentModel;
+  return { model: currentModel };
 }
 
 async function readSettingsFile(
@@ -201,13 +215,14 @@ export default function (pi: ExtensionAPI) {
         const loader = new BorderedLoader(
           tui,
           theme,
-          `Extracting questions using ${extractionModel.id}...`,
+          `Extracting questions using ${extractionModel.model.id}${extractionModel.thinkingLevel ? `:${extractionModel.thinkingLevel}` : ""}...`,
         );
         loader.onAbort = () => done(null);
 
         const doExtract = async () => {
-          const auth =
-            await ctx.modelRegistry.getApiKeyAndHeaders(extractionModel);
+          const auth = await ctx.modelRegistry.getApiKeyAndHeaders(
+            extractionModel.model,
+          );
           if (!auth.ok) {
             throw new Error(auth.error);
           }
@@ -218,8 +233,14 @@ export default function (pi: ExtensionAPI) {
           };
 
           const runExtraction = async (prompt: string, useTool: boolean) => {
-            return await complete(
-              extractionModel,
+            const reasoning =
+              extractionModel.thinkingLevel === undefined ||
+              extractionModel.thinkingLevel === "off"
+                ? {}
+                : { reasoning: extractionModel.thinkingLevel };
+
+            return completeSimple(
+              extractionModel.model,
               {
                 systemPrompt: prompt,
                 messages: [userMessage],
@@ -229,6 +250,7 @@ export default function (pi: ExtensionAPI) {
                 apiKey: auth.apiKey,
                 headers: auth.headers,
                 signal: loader.signal,
+                ...reasoning,
               },
             );
           };

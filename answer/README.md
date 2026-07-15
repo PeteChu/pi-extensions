@@ -48,9 +48,11 @@ The extension has three layers: **extraction**, **answering**, and **submission*
 
 ### Extraction
 
-When `/answer` runs, the extension walks the current session branch from newest to oldest and uses the latest completed assistant text message as the source. It then selects an extraction model from the configured preferences, falling back to the current chat model if none of the preferred models are available with credentials.
+When `/answer` runs, the extension walks the current session branch from newest to oldest and uses the latest completed assistant text message as the source. It then selects the first configured extraction model that exists in Pi's model registry and has working authentication, falling back to the current chat model if none is usable.
 
-The assistant message is sent to the extraction model with a structured `extract_questions` tool when supported. If that tool path fails, the extension retries with the plain JSON system prompt. Extracted questions are normalized before display: ids are stabilized, empty questions are dropped, optional headers/context are trimmed, and choices are kept only when they have usable labels.
+A configured model can include a thinking-level suffix. The suffix is removed for registry lookup and applied only to the extraction request; `/answer` does not change Pi's active model or thinking level. Existing unsuffixed model IDs remain supported and run without a reasoning override.
+
+The assistant message is sent to the extraction model with a structured `extract_questions` tool when supported. If that tool path fails, the extension retries with the plain JSON system prompt using the same selected model and thinking level. Extracted questions are normalized before display: ids are stabilized, empty questions are dropped, optional headers/context are trimmed, and choices are kept only when they have usable labels.
 
 ### Answering
 
@@ -73,8 +75,8 @@ The extension reads `answer` settings from Pi's global agent settings and projec
   "answer": {
     "systemPrompt": "Custom extraction prompt...",
     "extractionModels": [
-      { "provider": "openai-codex", "id": "gpt-5.4-mini" },
-      { "provider": "github-copilot", "id": "gpt-5.4-mini" },
+      { "provider": "openai-codex", "id": "gpt-5.6-luna:low" },
+      { "provider": "github-copilot", "id": "gpt-5.4-mini:off" },
       { "provider": "github-copilot", "id": "gemini-3-flash-preview" },
       { "provider": "anthropic", "id": "claude-haiku-4-5" }
     ],
@@ -90,5 +92,9 @@ The extension reads `answer` settings from Pi's global agent settings and projec
   }
 }
 ```
+
+Append an optional thinking level to a model `id` after its final colon. Valid suffixes are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. For example, `gpt-5.6-luna:low` looks up `gpt-5.6-luna` and requests low reasoning. The `off` suffix explicitly selects the base model without passing a reasoning level.
+
+Unsuffixed IDs continue to work as before and do not pass a reasoning override. An unrecognized final suffix is treated as part of the full legacy model ID. If no configured model can be resolved and authenticated, `/answer` uses Pi's current model without a reasoning override. These settings affect only question extraction, including its structured-tool and plain-JSON attempts.
 
 Template placeholders: `{{question}}`, `{{context}}`, `{{answer}}`, `{{index}}`, `{{total}}`.
