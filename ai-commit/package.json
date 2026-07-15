@@ -1,6 +1,6 @@
 {
   "name": "@petechu/pi-ai-commit",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Generate Conventional Commit messages from staged changes for pi",
   "homepage": "https://github.com/PeteChu/pi-extensions",
