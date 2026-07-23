@@ -1,11 +1,13 @@
 {
   "name": "@petechu/pi-extensions",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Collection of pi extensions by petechu",
   "license": "MIT",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "scripts": {
     "test": "pnpm -r test"
   },

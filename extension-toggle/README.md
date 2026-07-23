@@ -30,17 +30,17 @@ The command shows grouped entries by source with their current state:
 [ ] answer (global extension) · Disabled
 ```
 
-Move through entries with the arrow keys or `j`/`k`. Check or uncheck entries with `space`, then press `enter` to apply changes. Checked sources are enabled; unchecked sources are disabled. Package sources are toggled as a unit; top-level local resources are toggled individually. The extension writes the matching global or project settings changes, then asks whether to reload immediately. Confirm the reload for the changes to take effect right away.
+The picker opens ready for typing: type an extension, skill, prompt, theme, package, or path name to filter the list immediately. Move through the filtered entries with the arrow keys. Check or uncheck the highlighted source with `space`, then press `enter` to apply changes. Checked sources are enabled; unchecked sources are disabled. Package sources are toggled as a unit; top-level local resources are toggled individually. The extension writes the matching global or project settings changes, then asks whether to reload immediately. Confirm the reload for the changes to take effect right away.
 
 ## Search
 
-Press `/` or Ctrl+F to enter search mode, then type an extension, skill, prompt, theme, package, or path name to filter the list. While searching:
+The picker is always searchable, so printable characters filter sources as you type. While using it:
 
-- type printable characters to update the query;
+- use the arrow keys to move through matching sources;
+- use Space to toggle the highlighted source;
 - use Backspace/Delete to remove characters;
 - use Ctrl+U to clear the query;
-- use Esc to leave search mode without clearing the filter;
-- press Esc again after leaving search mode to clear the applied filter before cancelling the UI;
+- use Esc to clear the query, or cancel when it is already empty;
 - press Enter to apply selected changes.
 
 Filtering only changes which rows are visible. Toggle state is remembered by the original source, so checked/unchecked entries stay changed even when the search query hides them.

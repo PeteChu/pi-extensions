@@ -54,23 +54,21 @@ describe("extension-toggle extension", () => {
     assert.match(description, /floating window/);
   });
 
-  it("enters explicit search mode, filters typed text, and toggles filtered rows by original index", () => {
+  it("filters immediately and toggles filtered rows by original index", () => {
     let result: ExtensionToggleSelection[] | null | undefined;
     const options = testOptions();
     const component = new ExtensionMultiSelect(options, (selection) => {
       result = selection;
     });
 
-    component.handleInput("/");
     for (const character of "review") component.handleInput(character);
 
     const filteredRender = component.render(80).join("\n");
-    assert.match(filteredRender, /Search \(active\): review/);
+    assert.match(filteredRender, /Search: review/);
     assert.match(filteredRender, /reviewer \(global skill\)/);
     assert.doesNotMatch(filteredRender, /ai-commit/);
     assert.match(filteredRender, /1\/3 shown/);
 
-    component.handleInput("\u001b"); // leave search mode without cancelling
     component.handleInput(" "); // toggle the selected filtered row
     component.handleInput("\r");
 
@@ -82,53 +80,59 @@ describe("extension-toggle extension", () => {
     ]);
   });
 
-  it("uses printable characters only after entering search mode", () => {
+  it("keeps arrow navigation and Space toggling available while filtering", () => {
+    let result: ExtensionToggleSelection[] | null | undefined;
     const options = testOptions();
-    const component = new ExtensionMultiSelect(options, () => {});
+    const component = new ExtensionMultiSelect(options, (selection) => {
+      result = selection;
+    });
 
-    component.handleInput("j");
-    assert.match(component.render(80).join("\n"), /> \[ \] answer/);
+    for (const character of "global") component.handleInput(character);
+    component.handleInput("\u001b[A"); // Up stays on the first filtered row.
+    component.handleInput("\u001b[B"); // Down selects the next filtered row.
+    component.handleInput(" ");
+    component.handleInput("\r");
 
-    component.handleInput("/");
-    component.handleInput("j");
-    const render = component.render(80).join("\n");
-    assert.match(render, /Search \(active\): j/);
-    assert.match(render, /No sources match "j"/);
+    assert.deepEqual(result, [
+      {
+        option: options[2],
+        enabled: true,
+      },
+    ]);
   });
 
-  it("edits and clears the search query while search mode is active", () => {
+  it("edits and clears the query while filtering", () => {
     const component = new ExtensionMultiSelect(testOptions(), () => {});
 
-    component.handleInput("/");
     for (const character of "review") component.handleInput(character);
     component.handleInput("\x7f");
-    assert.match(component.render(80).join("\n"), /Search \(active\): revie/);
+    assert.match(component.render(80).join("\n"), /Search: revie/);
 
     component.handleInput("\x15");
     const render = component.render(80).join("\n");
-    assert.match(render, /Search \(active\): \(empty\)/);
+    assert.match(render, /Search: \(empty\)/);
     assert.match(render, /ai-commit/);
     assert.match(render, /answer/);
     assert.match(render, /reviewer/);
   });
 
-  it("clears an applied search before escape cancels the UI", () => {
+  it("clears the query before Escape cancels and remains searchable", () => {
     let result: ExtensionToggleSelection[] | null | undefined;
     const component = new ExtensionMultiSelect(testOptions(), (selection) => {
       result = selection;
     });
 
-    component.handleInput("/");
     for (const character of "review") component.handleInput(character);
-    component.handleInput("\u001b"); // leave search mode with filter applied
-    assert.match(component.render(80).join("\n"), /Search \(inactive\): review/);
-
     component.handleInput("\u001b");
     const clearedRender = component.render(80).join("\n");
     assert.equal(result, undefined);
-    assert.match(clearedRender, /Search \(inactive\): \(empty\)/);
+    assert.match(clearedRender, /Search: \(empty\)/);
     assert.match(clearedRender, /ai-commit/);
 
+    for (const character of "answer") component.handleInput(character);
+    assert.match(component.render(80).join("\n"), /Search: answer/);
+
+    component.handleInput("\u001b");
     component.handleInput("\u001b");
     assert.equal(result, null);
   });
@@ -137,7 +141,11 @@ describe("extension-toggle extension", () => {
     const options = Array.from({ length: 20 }, (_, index) =>
       longLabelOption(index),
     );
-    const component = new ExtensionMultiSelect(options, () => {}, () => 5);
+    const component = new ExtensionMultiSelect(
+      options,
+      () => {},
+      () => 5,
+    );
     const lines = component.render(100);
 
     assert.equal(
@@ -166,12 +174,11 @@ describe("extension-toggle extension", () => {
     const component = new ExtensionMultiSelect(testOptions(), () => {});
 
     const normalFooter = component.render(35).at(-1) ?? "";
-    assert.equal(normalFooter, "↑/↓ or j/k: move · enter: apply");
+    assert.equal(normalFooter, "↑/↓: move · space: toggle");
     assert.doesNotMatch(normalFooter, /\.\.\./);
 
-    component.handleInput("/");
     const searchFooter = component.render(35).at(-1) ?? "";
-    assert.equal(searchFooter, "type: search · ctrl+u: clear");
+    assert.equal(searchFooter, "↑/↓: move · space: toggle");
     assert.doesNotMatch(searchFooter, /\.\.\./);
   });
 
@@ -187,9 +194,8 @@ describe("extension-toggle extension", () => {
     assert.equal(normalFooter, "↑/↓ move · ? help");
     assert.doesNotMatch(normalFooter, /\.\.\./);
 
-    component.handleInput("/");
     const searchFooter = component.render(20).at(-1) ?? "";
-    assert.equal(searchFooter, "type search · ? help");
+    assert.equal(searchFooter, "↑/↓ move · ? help");
     assert.doesNotMatch(searchFooter, /\.\.\./);
   });
 
@@ -205,7 +211,6 @@ describe("extension-toggle extension", () => {
     const normalFooter = component.render(35).at(-1) ?? "";
     assert.equal(normalFooter, "ctrl+shift+e float · ? help");
 
-    component.handleInput("/");
     const searchFooter = component.render(35).at(-1) ?? "";
     assert.equal(searchFooter, "ctrl+shift+e float · ? help");
   });
@@ -225,7 +230,6 @@ describe("extension-toggle extension", () => {
     const width = 18;
     const component = new ExtensionMultiSelect([longLabelOption(0)], () => {});
 
-    component.handleInput("/");
     for (const character of "query-that-is-much-longer-than-the-terminal-width") {
       component.handleInput(character);
     }

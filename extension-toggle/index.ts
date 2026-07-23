@@ -38,9 +38,7 @@ export interface ExtensionToggleSelection {
 
 const OPEN_FLOATING_WINDOW = "open-floating-window";
 type SelectExtensionTogglesResult =
-  | ExtensionToggleSelection[]
-  | null
-  | typeof OPEN_FLOATING_WINDOW;
+  ExtensionToggleSelection[] | null | typeof OPEN_FLOATING_WINDOW;
 type VisibleRowCount = number | (() => number);
 
 function fitControlHints(
@@ -91,7 +89,6 @@ function fitControlHints(
 
 export class ExtensionMultiSelect implements Component {
   private selectedFilteredIndex = 0;
-  private searchMode = false;
   private searchQuery = "";
   private readonly checkedIndexes = new Set<number>();
   private readonly initialCheckedIndexes = new Set<number>();
@@ -205,46 +202,31 @@ export class ExtensionMultiSelect implements Component {
       visibleWidth(line) > safeWidth
         ? truncateToWidth(line, safeWidth, "...")
         : line;
-    const searchStatus = this.searchMode ? "active" : "inactive";
     const queryDisplay =
       this.searchQuery.length > 0 ? this.searchQuery : "(empty)";
-    const controlHints = this.searchMode
-      ? this.showHelpHint
-        ? [
-            "type search",
-            "enter apply",
-            "esc close search",
-            ...(this.floatingShortcutFooterHint
-              ? [this.floatingShortcutFooterHint]
-              : []),
-            "? help",
-          ]
-        : [
-            "type: search",
-            "backspace/delete: remove",
-            "ctrl+u: clear",
-            "esc: close search",
-            "enter: apply",
-          ]
-      : this.showHelpHint
-        ? [
-            "↑/↓ move",
-            "space toggle",
-            "/ search",
-            "enter apply",
-            "esc cancel",
-            ...(this.floatingShortcutFooterHint
-              ? [this.floatingShortcutFooterHint]
-              : []),
-            "? help",
-          ]
-        : [
-            "↑/↓ or j/k: move",
-            "/ or ctrl+f: search",
-            "space: check/uncheck",
-            "enter: apply",
-            "esc: cancel",
-          ];
+    const controlHints = this.showHelpHint
+      ? [
+          "↑/↓ move",
+          "space toggle",
+          "type search",
+          "backspace/delete remove",
+          "ctrl+u clear",
+          "enter apply",
+          "esc clear/cancel",
+          ...(this.floatingShortcutFooterHint
+            ? [this.floatingShortcutFooterHint]
+            : []),
+          "? help",
+        ]
+      : [
+          "↑/↓: move",
+          "space: toggle",
+          "type: search",
+          "backspace/delete: remove",
+          "ctrl+u: clear",
+          "enter: apply",
+          "esc: clear/cancel",
+        ];
     const fitControls = (): string =>
       fitControlHints(
         controlHints,
@@ -260,7 +242,7 @@ export class ExtensionMultiSelect implements Component {
       );
     const lines = [
       fitLine("Enable or disable sources"),
-      fitLine(`Search (${searchStatus}): ${queryDisplay}`),
+      fitLine(`Search: ${queryDisplay}`),
       "",
     ];
 
@@ -321,49 +303,22 @@ export class ExtensionMultiSelect implements Component {
       return;
     }
 
-    if (this.searchMode) {
-      if (matchesKey(data, Key.escape)) {
-        this.searchMode = false;
-        return;
-      }
-
-      if (matchesKey(data, Key.ctrl("u"))) {
-        this.setSearchQuery("");
-        return;
-      }
-
-      if (matchesKey(data, Key.backspace) || matchesKey(data, Key.delete)) {
-        this.setSearchQuery(this.searchQuery.slice(0, -1));
-        return;
-      }
-
-      if (matchesKey(data, Key.up)) {
-        this.moveSelection(-1);
-        return;
-      }
-
-      if (matchesKey(data, Key.down)) {
-        this.moveSelection(1);
-        return;
-      }
-
-      if (this.isPrintableInput(data)) {
-        this.setSearchQuery(`${this.searchQuery}${data}`);
-      }
+    if (matchesKey(data, Key.ctrl("u"))) {
+      this.setSearchQuery("");
       return;
     }
 
-    if (data === "/" || matchesKey(data, Key.ctrl("f"))) {
-      this.searchMode = true;
+    if (matchesKey(data, Key.backspace) || matchesKey(data, Key.delete)) {
+      this.setSearchQuery(this.searchQuery.slice(0, -1));
       return;
     }
 
-    if (matchesKey(data, Key.up) || data === "k") {
+    if (matchesKey(data, Key.up)) {
       this.moveSelection(-1);
       return;
     }
 
-    if (matchesKey(data, Key.down) || data === "j") {
+    if (matchesKey(data, Key.down)) {
       this.moveSelection(1);
       return;
     }
@@ -380,6 +335,11 @@ export class ExtensionMultiSelect implements Component {
       }
 
       this.done(null);
+      return;
+    }
+
+    if (this.isPrintableInput(data)) {
+      this.setSearchQuery(`${this.searchQuery}${data}`);
     }
   }
 }
@@ -433,13 +393,13 @@ class ExtensionToggleHelpOverlay implements Component {
       "",
       `${accent("Ctrl+Shift+E")} ${this.shortcutHelp}`,
       `${accent("?")} close this help overlay`,
-      `${accent("↑/↓")} or ${accent("j/k")} move selection`,
+      `${accent("↑/↓")} move selection`,
       `${accent("Space")} check or uncheck a source`,
-      `${accent("/")} or ${accent("Ctrl+F")} enter search mode`,
+      `${accent("Type")} filter sources immediately`,
       `${accent("Backspace/Delete")} remove search text`,
       `${accent("Ctrl+U")} clear search text`,
       `${accent("Enter")} apply selected changes`,
-      `${accent("Esc")} cancel, or close search mode when searching`,
+      `${accent("Esc")} clear the filter, or cancel when it is empty`,
       "",
       dim("This help is a second overlay stacked above the picker."),
     ];
