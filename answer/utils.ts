@@ -64,8 +64,7 @@ function isModelThinkingLevel(value: string): value is ModelThinkingLevel {
 }
 
 export type AnswerTemplateConfig =
-  | string
-  | { label?: string; template: string };
+  string | { label?: string; template: string };
 
 export interface AnswerTemplate {
   label: string;
@@ -112,7 +111,10 @@ Rules:
 - Keep header concise when provided
 - Header is optional; omit it when the question alone is clear
 - Include context only when it provides essential information for answering
-- Include options only when the text clearly suggests concrete choices
+- Craft each extracted question for an interactive answer: prefer a finite set of selectable options whenever one can be reasonably derived from the question or its context
+- Extract every concrete choice stated or clearly implied by the text; do not invent arbitrary choices
+- For confirmation, factual, permission, or decision questions that do not ask for an opinion, use Yes and No options when that is a natural answer format, even when the text does not state them explicitly
+- Use free text only when no meaningful finite set of options can be derived, such as an open-ended opinion, preference, explanation, or description
 - Each option needs a short label and one-sentence description
 - Option labels should fully represent the answer to the question on their own
 - If no questions are found, return {"questions": []}
@@ -139,7 +141,17 @@ Example output:
     {
       "id": "language_choice",
       "header": "Language",
-      "question": "Should we use TypeScript or JavaScript?"
+      "question": "Should we use TypeScript or JavaScript?",
+      "options": [
+        {
+          "label": "TypeScript",
+          "description": "Use TypeScript for static typing."
+        },
+        {
+          "label": "JavaScript",
+          "description": "Use JavaScript without a type-checking step."
+        }
+      ]
     }
   ]
 }`;
