@@ -1,6 +1,6 @@
 {
   "name": "@petechu/pi-extensions",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Collection of pi extensions by petechu",
