@@ -24,7 +24,7 @@ pi install npm:@petechu/pi-answer-studio
 
 ## 🔌 extension-toggle — `/extension-toggle`
 
-> Enable or disable installed pi extensions, skills, prompts, and themes — browse, toggle with space, reload to apply.
+> Enable or disable installed Pi extensions, skills, prompts, and themes. Save named global resource collections and switch between them with a reload.
 
 ```bash
 pi install npm:@petechu/pi-extension-toggle

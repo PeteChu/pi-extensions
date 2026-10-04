@@ -1,15 +1,23 @@
 {
   "name": "@petechu/pi-extension-toggle",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Enable or disable installed Pi extensions from inside Pi",
+  "description": "Toggle Pi extensions, skills, prompts, and themes, and switch saved global resource collections",
   "homepage": "https://github.com/PeteChu/pi-extensions",
   "license": "MIT",
   "keywords": [
     "pi-package"
   ],
+  "files": [
+    "index.ts",
+    "utils.ts",
+    "collections.ts",
+    "collection-ui.ts",
+    "command-completion.ts",
+    "README.md"
+  ],
   "scripts": {
-    "test": "node --import tsx --test ./tests/utils.test.ts ./tests/index.test.ts"
+    "test": "node --import tsx --test ./tests/utils.test.ts ./tests/index.test.ts ./tests/collection-ui.test.ts"
   },
   "pi": {
     "extensions": [
@@ -19,8 +27,8 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-agent-core": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
+    "@earendil-works/pi-coding-agent": ">=0.74.0",
+    "@earendil-works/pi-tui": ">=0.74.0",
     "typebox": "*"
   }
 }

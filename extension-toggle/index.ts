@@ -1,5 +1,6 @@
 import {
   DefaultPackageManager,
+  CustomEditor,
   getAgentDir,
   SettingsManager,
   type ExtensionAPI,
@@ -13,6 +14,7 @@ import {
   truncateToWidth,
   visibleWidth,
   type Component,
+  type AutocompleteItem,
   type OverlayHandle,
   type OverlayOptions,
   type TUI,
@@ -27,9 +29,42 @@ import {
   type ExtensionOption,
   type FilteredExtensionOption,
 } from "./utils";
+import {
+  assertSettingsErrors,
+  readCollections,
+  restoreCollection,
+  saveCollection,
+} from "./collections";
+import { promptCollectionReload, runCollectionManager } from "./collection-ui";
+import { withExtensionToggleCompletion } from "./command-completion";
 
 const COMMAND_NAME = "extension-toggle";
 const FLOATING_WINDOW_SHORTCUT = Key.ctrlShift("e");
+const FALLBACK_EDITOR = Symbol.for("pi-extension-toggle.fallback-editor");
+
+export async function getExtensionToggleCompletions(prefix: string): Promise<AutocompleteItem[] | null> {
+  const use = /^\s*use\s+(\S*)$/.exec(prefix);
+  if (use) {
+    try {
+      const names = Object.keys(await readCollections(getAgentDir())).sort();
+      const items = names.filter(name => name.startsWith(use[1])).map(name => ({
+        value: `use ${name}`, label: name, description: "Apply saved global configuration",
+      }));
+      return items.length ? items : null;
+    } catch {
+      return null;
+    }
+  }
+  const options = [
+    { value: "toggle", label: "toggle", description: "Enable or disable resource sources" },
+    { value: "collections", label: "collections", description: "Browse, save, rename and delete collections" },
+    { value: "save ", label: "save <name>", description: "Save current global settings as a collection" },
+    { value: "use ", label: "use <name>", description: "Apply a saved collection" },
+    { value: "list", label: "list", description: "List saved collection names" },
+  ];
+  const items = options.filter(option => option.value.trimEnd().startsWith(prefix.trimStart()));
+  return items.length ? items : null;
+}
 
 export interface ExtensionToggleSelection {
   option: ExtensionOption;
@@ -787,6 +822,49 @@ async function runExtensionToggle(
   await uiOptions.reload();
 }
 
+async function runCollectionCommand(
+  args: string,
+  ctx: ExtensionCommandContext,
+): Promise<void> {
+  const [command, name, ...extra] = args.trim().split(/\s+/);
+  if (
+    extra.length > 0 ||
+    (command === "list" ? name !== undefined : !name) ||
+    !["save", "use", "list"].includes(command)
+  ) {
+    ctx.ui.notify("Usage: /extension-toggle toggle | collections | save <name> | use <name> | list", "error");
+    return;
+  }
+  try {
+    const agentDir = getAgentDir();
+    if (command === "list") {
+      const names = Object.keys(await readCollections(agentDir)).sort();
+      ctx.ui.notify(
+        names.length > 0 ? `Collections:\n${names.join("\n")}` : "No collections saved. Use /extension-toggle save <name>.",
+        "info",
+      );
+      return;
+    }
+    if (command === "use") {
+      const collections = await readCollections(agentDir);
+      if (!Object.hasOwn(collections, name)) {
+        throw new Error(`Unknown collection "${name}". Use /extension-toggle list.`);
+      }
+      await ctx.waitForIdle();
+      const settingsManager = SettingsManager.create(ctx.cwd, agentDir);
+      await restoreCollection(settingsManager, collections[name], { cwd: ctx.cwd, agentDir });
+      await promptCollectionReload(ctx, name);
+    } else {
+      const settingsManager = SettingsManager.create(ctx.cwd, agentDir);
+      assertSettingsErrors(settingsManager);
+      await saveCollection(agentDir, name, settingsManager.getGlobalSettings());
+      ctx.ui.notify(`Saved collection "${name}".`, "info");
+    }
+  } catch (error) {
+    ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+  }
+}
+
 async function extensionToggleHandler(
   ctx: ExtensionCommandContext,
   openFloatingWindow?: () => void,
@@ -801,6 +879,23 @@ async function extensionToggleHandler(
 export default function (pi: ExtensionAPI) {
   let floatingWindowHandle: OverlayHandle | null = null;
   let floatingWindowPromise: Promise<void> | null = null;
+
+  pi.on("session_start", (_event, ctx) => {
+    if (!ctx.hasUI) return;
+    const existing = ctx.ui.getEditorComponent();
+    ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+      if (existing) return withExtensionToggleCompletion(existing(tui, theme, keybindings));
+      const cached: unknown = Reflect.get(tui, FALLBACK_EDITOR);
+      const autocompleteMaxVisible = SettingsManager.create(ctx.cwd, getAgentDir()).getAutocompleteMaxVisible();
+      if (cached instanceof CustomEditor) {
+        cached.setAutocompleteMaxVisible(autocompleteMaxVisible);
+        return withExtensionToggleCompletion(cached);
+      }
+      const editor = new CustomEditor(tui, theme, keybindings, { autocompleteMaxVisible });
+      Reflect.set(tui, FALLBACK_EDITOR, editor);
+      return withExtensionToggleCompletion(editor);
+    });
+  });
 
   async function toggleFloatingWindow(ctx: ExtensionContext): Promise<void> {
     if (floatingWindowHandle) {
@@ -840,10 +935,18 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand(COMMAND_NAME, {
     description:
-      "Enable or disable installed Pi extensions, skills, prompts, and themes",
-    handler: async (_args, ctx) =>
-      extensionToggleHandler(ctx, () => {
-        void toggleFloatingWindow(ctx);
-      }),
+      "Toggle Pi resources; use 'collections' to manage saved global configurations",
+    getArgumentCompletions: getExtensionToggleCompletions,
+    handler: async (args, ctx) => {
+      if (args.trim() === "collections") {
+        await runCollectionManager(ctx);
+      } else if (args.trim() && args.trim() !== "toggle") {
+        await runCollectionCommand(args, ctx);
+      } else {
+        await extensionToggleHandler(ctx, () => {
+          void toggleFloatingWindow(ctx);
+        });
+      }
+    },
   });
 }

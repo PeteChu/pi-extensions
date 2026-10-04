@@ -1,8 +1,10 @@
 # pi-extension-toggle
 
-Pi extension that lets you enable or disable installed Pi extensions, skills, prompts, and themes from inside an interactive Pi session.
+Toggle installed Pi extensions, skills, prompts, and themes, and save named global resource collections for repeatable switching.
 
 ## Install
+
+Requires Pi 0.74.0 or newer.
 
 ```bash
 pi install npm:@petechu/pi-extension-toggle
@@ -16,6 +18,13 @@ After installing, run:
 ```text
 /extension-toggle
 ```
+
+Use Tab, or your configured completion key, to complete `/extension-toggle` and
+select `toggle`, `collections`, `save <name>`, `use <name>`, or `list`.
+Selecting `use <name>` opens saved collection names. Typing
+`/extension-toggle use ` also shows them. The extension preserves your configured
+autocomplete menu size and input history across reloads. `toggle` opens the same
+picker as the command without arguments.
 
 Or press `Ctrl+Shift+E` to open the picker as a floating window. Pressing `Ctrl+Shift+E` from `/extension-toggle` closes the default picker and opens the floating one; pressing it again from the floating window hides/shows that window without losing pending selections.
 
@@ -31,6 +40,58 @@ The command shows grouped entries by source with their current state:
 ```
 
 The picker opens ready for typing: type an extension, skill, prompt, theme, package, or path name to filter the list immediately. Move through the filtered entries with the arrow keys. Check or uncheck the highlighted source with `space`, then press `enter` to apply changes. Checked sources are enabled; unchecked sources are disabled. Package sources are toggled as a unit; top-level local resources are toggled individually. The extension writes the matching global or project settings changes, then asks whether to reload immediately. Confirm the reload for the changes to take effect right away.
+
+## Collections
+
+Open the collection manager inside Pi's custom terminal UI:
+
+```text
+/extension-toggle collections
+```
+
+Type to filter saved names, use Up/Down to select, and press Enter to preview
+the stored settings. Press Enter again to restore the snapshot, then confirm
+the reload prompt to load the resources immediately. Declining keeps the saved
+settings and shows a `/reload` reminder. Package-source mismatches are shown in the
+list and block applying the snapshot. Preview Up/Down scrolls settings;
+Esc returns to the list, clears a search, then closes the manager.
+
+- **Ctrl+S** saves the current global configuration under a new name.
+- **Ctrl+R** renames the selected collection without changing its snapshot.
+- **Ctrl+D** deletes the selected collection after confirmation; current settings remain unchanged.
+
+Saving and renaming enforce the same name validation and refuse collisions.
+The preview shows saved filters, including empty arrays and absent settings,
+rather than estimating the number of enabled resources. The existing picker,
+floating shortcut, and commands below remain available.
+
+Save and restore named **global** resource configurations without opening the picker:
+
+```text
+/extension-toggle save baseline
+# Change resource toggles with /extension-toggle or pi config.
+/extension-toggle save review
+/extension-toggle list
+/extension-toggle use baseline
+/reload
+/extension-toggle use review
+/reload
+```
+
+`save <name>` captures only `packages`, `extensions`, `skills`, `prompts`, and `themes` from global settings. Package objects retain their exact resource filters, including empty arrays and partially enabled packages; missing settings remain missing. Models, credentials, tools, and unrelated settings are not captured or restored.
+
+Collections persist in `<getAgentDir()>/extension-toggle-collections.json` (normally `~/.pi/agent/extension-toggle-collections.json`). Names are case-sensitive, 1–64 letters, digits, underscores, or hyphens, starting with a letter or digit. Duplicate names are refused, not overwritten. Invalid names or malformed collection data fail without replacing existing data; saves use a temporary file and rename.
+
+`use <name>` waits for idle, writes and flushes global settings, then asks whether to reload immediately in interactive mode. Declining (or applying without an interactive UI) leaves the settings saved and shows a `/reload` reminder. The no-argument command and floating picker are unchanged.
+
+Collection scope and limits:
+
+- Project settings are untouched and can override the restored configuration.
+- Package source declarations must match the saved collection exactly, including order and versions. Adding, removing, reordering, or changing a source prevents restoration; save a new collection after such changes.
+- The globally configured toggle manager stays enabled. Restoration retains its discovery path when needed and overrides exclusions for its extension without enabling siblings. This is the exception to exact restoration.
+- This restores configuration, not a strict allowlist. Newly discovered local resources follow Pi's normal discovery rules.
+- Concurrent saves from multiple sessions are last-writer-wins; avoid editing collections concurrently.
+- Project collections, individual-resource collection editing, additive collections, automatic reload, and active-collection indicators are not included.
 
 ## Search
 
