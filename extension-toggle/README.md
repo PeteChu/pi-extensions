@@ -1,6 +1,6 @@
 # pi-extension-toggle
 
-Toggle installed Pi extensions, skills, prompts, and themes, and save named global resource collections for repeatable switching.
+Toggle installed Pi extensions, skills, prompts, and themes. Save named global resource collections to switch configurations while keeping repo-specific settings.
 
 ## Install
 
@@ -8,181 +8,147 @@ Requires Pi 1.0.2 or newer.
 
 ```bash
 pi install npm:@petechu/pi-extension-toggle
-/reload
 ```
 
-## Usage
+Run `/reload` in Pi after installation.
 
-After installing, run:
+## Commands
 
-```text
-/extension-toggle
-```
+| Command                         | Action                                                         |
+| ------------------------------- | -------------------------------------------------------------- |
+| `/extension-toggle`             | Open the resource picker.                                      |
+| `/extension-toggle toggle`      | Open the resource picker.                                      |
+| `/extension-toggle collections` | Browse, preview, save, rename, and delete collections.         |
+| `/extension-toggle save <name>` | Save the current global resource settings as a collection.     |
+| `/extension-toggle use <name>`  | Restore a collection to global settings.                       |
+| `/extension-toggle list`        | List saved collection names.                                   |
+| `/extension-toggle changelog`   | Read release notes for the installed extension-toggle version. |
 
-Use Tab, or your configured completion key, to complete `/extension-toggle` and
-select `toggle`, `collections`, `changelog`, `save <name>`, `use <name>`, or `list`.
-Selecting `use <name>` opens saved collection names. Typing
-`/extension-toggle use ` also shows them. The extension preserves your configured
-autocomplete menu size and input history across reloads. `toggle` opens the same
-picker as the command without arguments.
+Use Tab, or your configured completion key, to complete commands. Selecting `use <name>` or typing `/extension-toggle use` shows saved collection names. Completion respects your configured menu size and preserves input history across reloads.
 
-Or press `Ctrl+Shift+E` to open the picker as a floating window. Pressing `Ctrl+Shift+E` from `/extension-toggle` closes the default picker and opens the floating one; pressing it again from the floating window hides/shows that window without losing pending selections.
+## Resource picker
 
-Press `?` in either picker to show help, including the floating-window shortcut.
+Run `/extension-toggle`, or press Ctrl+Shift+E to open a floating picker. Pressing Ctrl+Shift+E in the regular picker opens the floating picker. In the floating picker, the shortcut hides or shows the window without losing pending selections.
 
-The command shows grouped entries by source with their current state:
+The picker groups extensions, skills, prompts, and themes by source:
 
-```text
-[x] npm:package-usage (global) · Enabled
-[ ] npm:other-package (project) · Disabled
-[x] ai-commit (global extension) · Enabled
-[ ] answer (global extension) · Disabled
-```
+- A package is one toggleable source containing all its resources.
+- Each standalone local extension, skill, prompt, or theme is a separate source.
 
-The picker opens ready for typing: type an extension, skill, prompt, theme, package, or path name to filter the list immediately. Move through the filtered entries with the arrow keys. Check or uncheck the highlighted source with `space`, then press `enter` to apply changes. Checked sources are enabled; unchecked sources are disabled. Package sources are toggled as a unit; top-level local resources are toggled individually. The extension writes the matching global or project settings changes, then asks whether to reload immediately. Confirm the reload for the changes to take effect right away.
+A source starts checked if any of its resources are enabled. Checking a package enables all its resources; unchecking it disables all of them. The toggle manager hides itself from the list.
+
+Type a package name, resource name, or path to filter sources. Search also matches resource types and Pi metadata. Filtering preserves pending selections, including those on hidden rows.
+
+| Key                | Action                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| Up / Down          | Select a source.                                                                          |
+| Space              | Toggle the selected source.                                                               |
+| Ctrl+A             | Check all matching sources, including rows offscreen. With no filter, check every source. |
+| Tab                | Switch the save destination between Repo and Global.                                      |
+| Backspace / Delete | Remove the last search character.                                                         |
+| Ctrl+U             | Clear the search.                                                                         |
+| Enter              | Save sources whose checked state changed.                                                 |
+| Esc                | Clear the search, or cancel if the search is empty.                                       |
+| Ctrl+C             | Cancel without saving.                                                                    |
+| ?                  | Show picker help.                                                                         |
+
+The command picker asks whether to reload after saving. The floating picker saves settings and shows a `/reload` reminder. Settings take effect after reload or the next Pi start. Cancelling or applying without changed sources writes nothing.
 
 ## Repository persistence
 
-Press **Tab** in either picker to switch between **Repo** and **Global** saving. The current destination appears above the search field. Press **Enter** to save changed sources to that destination. Switching the destination preserves your search and pending selections. Cancelling or applying without changed sources writes nothing.
+The picker shows the save destination above the search field. Tab changes the destination for that picker only and preserves your search and pending selections. It does not move or delete settings.
 
-Normal `pi` and the picker use global settings plus the current directory's `.pi/settings.json`. They do not search parent directories or the Git root.
+| Destination | Settings file                                                         |
+| ----------- | --------------------------------------------------------------------- |
+| Repo        | `<current directory>/.pi/settings.json`                               |
+| Global      | `<getAgentDir()>/settings.json`, normally `~/.pi/agent/settings.json` |
 
-To use repository-root settings, start `pi` from that root. To keep separate settings in another directory, start `pi` there, select **Repo** with **Tab**, change a source, and save. **Repo** means the current directory, not an automatically selected Git root.
+Pi and the picker read global settings and the current directory's `.pi/settings.json`. They do not search parent directories or the Git root for settings. To use repository-root settings, start Pi from that root. Starting Pi in a subdirectory uses that subdirectory's settings instead.
 
-If the current directory's `.pi/settings.json` defines `packages`, `extensions`, `skills`, `prompts`, or `themes`, the picker defaults to Repo. Empty arrays count as configuration. Without these fields, it defaults to Global. Other project settings, such as the model, do not change this default.
+The picker defaults to Repo when the current directory's settings define `packages`, `extensions`, `skills`, `prompts`, or `themes`. Empty arrays count as configuration. Otherwise, it defaults to Global. Unrelated settings, such as the model, do not affect this choice.
 
-Repo writes go to `<current directory>/.pi/settings.json`. Global writes go to `<getAgentDir()>/settings.json`, normally `~/.pi/agent/settings.json`, even for project-origin resources. Existing settings in the other destination remain untouched. Project configuration can still override global changes. To return to managing global settings by default, manually remove the project resource fields or the project settings file. Preserve unrelated project settings if you still need them.
+Changes go to the selected destination, regardless of a resource's origin. Settings in the other destination remain untouched. Repo settings can override global changes. To make Global the default again, remove the repo resource fields while preserving unrelated settings.
 
-Tab chooses a destination for the current picker only. It does not move or delete configuration. The former `/extension-toggle scope` command is removed, and legacy `extension-toggle.json` preference files no longer affect saving. Collections remain global.
+### Package settings
 
-When you save a globally installed package to Repo, the manager writes an `autoload: false` filtering delta that reuses the global installation. Enabling and disabling replace the package's four resource filters, including hidden resources. Existing normal project declarations remain normal declarations, and project-only packages keep their own installation. Relative local package paths become absolute unless an equivalent declaration already exists in the destination. Global settings remain unchanged by Repo saves.
+For normal package declarations, disabling writes empty `extensions`, `skills`, `prompts`, and `themes` filters. Enabling removes those filters and stores the package as its source string.
 
-Standalone resources saved across scopes receive absolute discovery paths and exact include or exclude patterns. Absolute paths are specific to this machine and checkout. They are not portable to another machine.
+When saving a globally installed package to Repo, the picker writes an `autoload: false` entry that reuses the global installation. Its filters explicitly enable or disable all four resource types, including hidden resources. An existing normal project declaration stays a normal declaration, and a project-only package keeps its own installation.
 
-Pi cannot apply package filters to a package declared as a single extension file or a bare extension directory without a `pi` manifest or resource subdirectories. The picker rejects these toggles before writing any selected changes. Configure a standalone resource in the top-level `extensions` list instead of `packages`, or give a directory package a `pi.extensions` manifest.
+Relative local package paths become absolute when saved across destinations, unless an equivalent declaration already exists in the destination.
+
+Pi cannot apply package filters to a package declared as a single extension file or a bare extension directory without a `pi` manifest or resource subdirectories. The picker rejects these toggles before writing any selected changes. Put a standalone resource in the top-level `extensions` list, or give a directory package a `pi.extensions` manifest.
+
+### Standalone resource settings
+
+Disabling a standalone resource writes an exact `-path` exclusion. Enabling writes an exact `+path` include that overrides broader exclusions. Saving removes existing exact include or exclude entries for the same path before writing the new one.
+
+Resources saved across destinations also receive an absolute discovery path. Absolute paths are specific to the machine and checkout; they are not portable to another machine.
 
 ## Collections
 
-Open the collection manager inside Pi's custom terminal UI:
+A collection stores the global `packages`, `extensions`, `skills`, `prompts`, and `themes` settings. Package objects retain their exact resource filters and `autoload` value, including empty arrays and partially enabled packages. Missing fields remain missing. Models, credentials, tools, and unrelated settings are not captured or restored.
 
-```text
-/extension-toggle collections
-```
+Collections persist in `<getAgentDir()>/extension-toggle-collections.json`, normally `~/.pi/agent/extension-toggle-collections.json`. Names are case-sensitive and contain 1–64 letters, digits, underscores, or hyphens, starting with a letter or digit. Duplicate names are refused rather than overwritten. Invalid names or malformed collection data fail without replacing existing data. Writes use a temporary file and rename.
 
-Type to filter saved names, use Up/Down to select, and press Enter to preview
-the stored settings. Press Enter again to restore the snapshot, then confirm
-the reload prompt to load the resources immediately. Declining keeps the saved
-settings and shows a `/reload` reminder. Package-source mismatches are shown in the
-list and block applying the snapshot. Preview Up/Down scrolls settings;
-Esc returns to the list, clears a search, then closes the manager.
+### Collection manager
 
-- **Ctrl+S** saves the current global configuration under a new name.
-- **Ctrl+R** renames the selected collection without changing its snapshot.
-- **Ctrl+D** deletes the selected collection after confirmation; current settings remain unchanged.
+Run `/extension-toggle collections`. Type to filter names, use Up and Down to select a collection, and press Enter to preview its saved settings. Press Enter again to restore it. The preview shows saved filters and unconfigured fields, not the final enabled resources in the current repo.
 
-Saving and renaming enforce the same name validation and refuse collisions.
-The preview shows saved filters, including empty arrays and absent settings,
-rather than estimating the number of enabled resources. The existing picker,
-floating shortcut, and commands below remain available.
+| Key       | Action                                                                                |
+| --------- | ------------------------------------------------------------------------------------- |
+| Ctrl+S    | Save current global settings under a new name.                                        |
+| Ctrl+R    | Rename the selected collection without changing its snapshot.                         |
+| Ctrl+D    | Delete the selected collection after confirmation, without changing current settings. |
+| Up / Down | Select a collection, or scroll its preview.                                           |
+| Ctrl+U    | Clear the name filter.                                                                |
+| Esc       | Return from preview, clear the name filter, or close the manager.                     |
+| Ctrl+C    | Close the manager.                                                                    |
 
-Save and restore named **global** resource configurations without opening the picker:
+Collections with mismatched global package sources show `sources changed` and cannot be restored. Saving and renaming use the same name rules and refuse collisions.
 
-```text
-/extension-toggle save baseline
-# Change resource toggles with /extension-toggle or pi config.
-/extension-toggle save review
-/extension-toggle list
-/extension-toggle use baseline
-/reload
-/extension-toggle use review
-/reload
-```
+### Save and restore commands
 
-`save <name>` captures only `packages`, `extensions`, `skills`, `prompts`, and `themes` from global settings. Package objects retain their exact resource filters and `autoload` setting, including empty arrays and partially enabled packages; missing settings remain missing. Models, credentials, tools, and unrelated settings are not captured or restored.
+Run `/extension-toggle save baseline` to capture the current global resource settings. To capture a different configuration, change resources with the picker set to Global, then run `/extension-toggle save review`.
 
-Collections persist in `<getAgentDir()>/extension-toggle-collections.json` (normally `~/.pi/agent/extension-toggle-collections.json`). Names are case-sensitive, 1–64 letters, digits, underscores, or hyphens, starting with a letter or digit. Duplicate names are refused, not overwritten. Invalid names or malformed collection data fail without replacing existing data; saves use a temporary file and rename.
+Run `/extension-toggle list` to see saved names. Run `/extension-toggle use baseline` or `/extension-toggle use review` to restore one.
 
-`use <name>` waits for idle, writes and flushes global settings, then asks whether to reload immediately in interactive mode. Declining (or applying without an interactive UI) leaves the settings saved and shows a `/reload` reminder. The no-argument command and floating picker are unchanged.
+Restoration waits for idle, replaces the five global resource fields, and flushes settings before prompting for reload. Declining the prompt, or restoring without an interactive UI, leaves the settings saved and shows a `/reload` reminder. Restoring does not change the saved collection.
 
-Collection scope and limits:
+### Collections and repo settings
 
-- Project settings are untouched and can override the restored configuration.
-- Package source declarations must match the saved collection exactly, including order and versions. Adding, removing, reordering, or changing a source prevents restoration; save a new collection after such changes.
+A collection is a saved global configuration, not a snapshot of everything enabled in the current repo. Repo settings keep directory-specific choices while collections switch the global configuration.
+
+`save <name>` and Ctrl+S in the collection manager read only global settings, even when the picker defaults to Repo. Saving after a Repo toggle does not capture that toggle. Tab does not change collection scope.
+
+Restoring a collection does not write to `.pi/settings.json`, remove repo overrides, or associate the repo with a collection name. After reload, Pi resolves resources using the restored global settings and the current directory's unchanged repo settings.
+
+For a globally installed package toggled through Repo, its `autoload: false` entry overrides the global resource filters. A Repo-disabled package stays disabled when a collection enables it globally. A Repo-enabled package stays enabled when a collection disables it globally. A normal project package declaration takes precedence over the matching global package instead. Standalone resources retain their repo discovery paths and exact include or exclude patterns across collection switches.
+
+For example, with a globally installed package enabled:
+
+1. Run `/extension-toggle save baseline` to capture the global configuration.
+2. Open `/extension-toggle`, select Repo with Tab, disable that package, and apply the change. Only the current directory's `.pi/settings.json` changes.
+3. Run `/extension-toggle use baseline` and confirm reload. The package remains disabled in this repo because its repo filters still apply.
+4. Start Pi in a directory without that repo override. The package uses the restored global filters and is enabled there.
+
+To let a package follow collections again, remove its repo override from `.pi/settings.json`. Enabling it in Repo writes an explicit enable override; it does not restore inheritance. For a standalone resource, remove its repo include or exclude override and any discovery path added for that override. Preserve unrelated repo settings.
+
+Restoration changes the shared global settings file. Other Pi sessions use those changes on their next reload or start. Later picker changes do not update an existing collection. Save a new name to capture a new global configuration.
+
+### Restoration limits
+
+- Global package source declarations must match the saved collection exactly, including order and versions. Adding, removing, reordering, or changing a global source blocks restoration. Save a new collection after such changes. Project package declarations are not part of this check.
 - The globally configured toggle manager stays enabled. Restoration retains its discovery path when needed and overrides exclusions for its extension without enabling siblings. This is the exception to exact restoration.
-- This restores configuration, not a strict allowlist. Newly discovered local resources follow Pi's normal discovery rules.
-- Concurrent saves from multiple sessions are last-writer-wins; avoid editing collections concurrently.
-- Project collections, individual-resource collection editing, additive collections, automatic reload, and active-collection indicators are not included.
+- Collections restore settings, not a strict resource allowlist. Newly discovered local resources follow Pi's normal discovery rules.
+- Concurrent collection saves from multiple sessions are last-writer-wins. Avoid editing collections concurrently.
 
-## Extension-toggle release notes
+## Release notes
 
-Run `/extension-toggle changelog` to read what changed in extension-toggle. The command opens its release history directly, without a package picker. It never shows release notes or update hints for other installed Pi extensions.
+Run `/extension-toggle changelog` to read the installed extension-toggle release notes. Use Up and Down to scroll, or Page Up and Page Down in regular TUI mode. In fullscreen mode, Pi reserves page keys for transcript scrolling. Esc or Ctrl+C closes the viewer.
 
-Use Up/Down to scroll. In regular TUI mode, Page Up/Page Down also scroll the release notes. In fullscreen mode, Pi reserves page keys for transcript scrolling. Esc or Ctrl+C closes the viewer.
+At session start or reload, a version increase shows an update hint above the editor. The hint remains until you open the release notes or reload again. The first interactive load records a baseline silently. Unchanged versions, downgrades, and previously announced versions stay quiet. Noninteractive runs do not consume hints. Release notes are not opened automatically or sent to the model.
 
-At session start or `/reload`, an extension-toggle version increase produces a short hint:
+The viewer reads the `package.json` and `CHANGELOG.md` bundled with the loaded extension. It omits Unreleased sections and releases newer than the installed version. It does not fetch releases, install updates, or show notes for other extensions. Run `/reload` after updating extension files to load the new code.
 
-```text
-extension-toggle updated (0.1.3 → 0.2.0). Run /extension-toggle changelog to see what changed.
-```
-
-The hint stays above the editor until you open the release notes or reload again. Release notes are not displayed automatically or sent to the model. The first interactive load records a baseline silently. Unchanged versions, downgrades, and returning to a previously announced version stay quiet. Noninteractive runs do not consume update hints.
-
-The viewer reads `package.json` and `CHANGELOG.md` bundled beside the loaded extension-toggle code. This works with npm installations, local packages, and direct loading of `extension-toggle/index.ts`. It omits Unreleased sections and releases newer than that installation's version. It does not scan other packages, fetch releases, or install anything.
-
-Seen versions persist in `<getAgentDir()>/extension-toggle/changelog-seen-v1.json`, keyed by the loaded installation's directory. Different installation paths have separate baselines. Writes use atomic replacement, and checks are serialized within one process. Simultaneous Pi processes can still duplicate hints or lose recorded baselines. Run `/reload` after updating extension files to activate the new code.
-
-To prepare release notes, edit `extension-toggle/CHANGELOG.md` directly and move any Unreleased notes into a section matching `extension-toggle/package.json`'s version. The package bundles this file without a generation or synchronization step.
-
-## Picker search
-
-The picker is always searchable, so printable characters filter sources as you type. While using it:
-
-- use the arrow keys to move through matching sources;
-- use Space to toggle the highlighted source;
-- use Tab to switch between Repo and Global saving;
-- use Backspace/Delete to remove characters;
-- use Ctrl+U to clear the query;
-- use Esc to clear the query, or cancel when it is already empty;
-- press Enter to apply selected changes.
-
-Filtering only changes which rows are visible. Toggle state is remembered by the original source, so checked/unchecked entries stay changed even when the search query hides them.
-
-## Grouping
-
-Resources are grouped by their origin:
-
-- **Package sources** (e.g., `npm:package-usage`): all extensions, skills, prompts, and themes from that package form one toggleable unit.
-- **Top-level sources** (`~/.pi/agent/` and `.pi/` auto-discovered resources): each local extension, skill, prompt, or theme is its own toggleable unit.
-
-When you disable a package source, the toggler writes empty filters for all four resource types so nothing from that package is loaded. When you disable a top-level source, it writes an exact exclusion for that resource. When you re-enable a source, it writes an exact include for that resource so it can override broader exclusions.
-
-## Design & workflow
-
-The extension has three layers: **discovery**, **selection**, and **settings updates**.
-
-### Discovery
-
-When `/extension-toggle` starts, it waits for the current session to become idle, then resolves Pi resources from both the global agent directory and the current directory's `.pi/` directory. It asks Pi's package manager for the installed extensions, skills, prompts, and themes, then filters the list down to resources that can be toggled from settings.
-
-The toggle manager excludes itself from this list so you cannot accidentally disable `/extension-toggle` while using it. Package resources are grouped by package source, while top-level local resources are grouped by their scope, type, and path relative to `~/.pi/agent/` or `.pi/`.
-
-### Selection
-
-The command renders an interactive multi-select list. Each row starts checked if the selected configuration enables any resource in that source. Only rows whose checked state changes are applied when you press Enter.
-
-Search mode filters rows without losing pending toggle state. The search index includes the visible label, source key, resource type, resource path, and Pi metadata, so queries can match package names, local resource names, nested file names, or paths.
-
-### Settings updates
-
-When changes are applied, the extension writes to the matching global or project settings scope:
-
-1. **Package sources** update the package entry itself. Disabling a package writes empty `extensions`, `skills`, `prompts`, and `themes` filters so none of that package's resources load. Enabling a package clears those filters; if no filters remain, the package entry is stored as its plain source string again.
-2. **Top-level resources** update the relevant path list for that resource type. Disabling writes an exact `-path` exclusion, while enabling writes an exact `+path` include so the resource can override broader exclusions.
-3. Existing include or exclude entries for the same exact path are removed before the new entry is written, keeping the setting deterministic.
-
-After settings are flushed, the command reports how many sources changed and asks whether to reload immediately. If you skip the reload, the saved settings will take effect the next time you run `/reload`.
-
-## Notes and limitations
-
-- It supports global (`~/.pi/agent`) and project (`.pi/`) scopes.
-- `pi-extension-toggle` hides itself from the selection list so you cannot disable the manager from its own UI.
+Seen versions persist in `<getAgentDir()>/extension-toggle/changelog-seen-v1.json`, keyed by installation directory. Different installation paths have separate baselines. Writes use atomic replacement and are serialized within one process. Simultaneous Pi processes can still duplicate hints or lose recorded baselines.

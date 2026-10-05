@@ -10,6 +10,7 @@ Release notes for `@petechu/pi-extension-toggle`.
 - Argument completion for toggle, collection, and changelog actions.
 - `/extension-toggle changelog` to view bundled release notes, with an update hint after upgrading extension-toggle.
 - Repo and Global save destinations in both pickers, selectable with Tab. The default is Repo when the current directory has resource configuration, otherwise Global.
+- Ctrl+A checks all sources matching the current filter in both pickers, including rows offscreen. With no filter, it checks every source.
 
 ### Changed
 

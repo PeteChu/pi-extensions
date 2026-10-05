@@ -259,6 +259,7 @@ export class ExtensionMultiSelect implements Component {
       ? [
           "↑/↓ move",
           "space toggle",
+          "ctrl+a select all",
           "type search",
           "backspace/delete remove",
           "ctrl+u clear",
@@ -272,6 +273,7 @@ export class ExtensionMultiSelect implements Component {
       : [
           "↑/↓: move",
           "space: toggle",
+          "ctrl+a: select all",
           "type: search",
           "backspace/delete: remove",
           "ctrl+u: clear",
@@ -357,6 +359,11 @@ export class ExtensionMultiSelect implements Component {
 
     if (matchesKey(data, Key.enter)) {
       this.submit();
+      return;
+    }
+
+    if (matchesKey(data, Key.ctrl("a"))) {
+      for (const row of this.filteredOptions) this.checkedIndexes.add(row.originalIndex);
       return;
     }
 
@@ -452,6 +459,7 @@ class ExtensionToggleHelpOverlay implements Component {
       `${accent("?")} close this help overlay`,
       `${accent("↑/↓")} move selection`,
       `${accent("Space")} check or uncheck a source`,
+      `${accent("Ctrl+A")} check all matching sources`,
       `${accent("Tab")} switch between repo and global saving`,
       `${accent("Type")} filter sources immediately`,
       `${accent("Backspace/Delete")} remove search text`,

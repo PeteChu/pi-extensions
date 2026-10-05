@@ -85,6 +85,31 @@ describe("extension-toggle extension", () => {
     });
   });
 
+  it("selects all matching sources with Ctrl+A without toggling checked or hidden rows", () => {
+    for (const [query, changedIndexes] of [
+      ["", [1, 2]],
+      ["global", [1, 2]],
+      ["review", [2]],
+      ["missing", []],
+    ] as const) {
+      let result: ExtensionToggleResult | null | undefined;
+      const options = testOptions();
+      const component = new ExtensionMultiSelect(options, (selection) => {
+        result = selection;
+      }, 1);
+
+      for (const character of query) component.handleInput(character);
+      component.handleInput("\x01");
+      component.handleInput("\x01");
+      component.handleInput("\r");
+
+      assert.deepEqual(result, {
+        saveScope: "global",
+        selections: changedIndexes.map(index => ({ option: options[index], enabled: true })),
+      }, query);
+    }
+  });
+
   it("edits and clears the query while filtering", () => {
     const component = new ExtensionMultiSelect(testOptions(), () => {});
 
