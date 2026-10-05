@@ -1,5 +1,9 @@
+import path from "node:path";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import {
   DefaultPackageManager,
+  CustomEditor,
   getAgentDir,
   SettingsManager,
   type ExtensionAPI,
@@ -13,6 +17,7 @@ import {
   truncateToWidth,
   visibleWidth,
   type Component,
+  type AutocompleteItem,
   type OverlayHandle,
   type OverlayOptions,
   type TUI,
@@ -22,23 +27,67 @@ import {
   buildSourceOptions,
   filterExtensionOptions,
   isSourceEnabled,
+  stripPatternPrefix,
   toggleAllPackageResources,
   toggleTopLevelResourcePaths,
   type ExtensionOption,
   type FilteredExtensionOption,
 } from "./utils";
+import {
+  assertSettingsErrors,
+  readCollections,
+  restoreCollection,
+  saveCollection,
+} from "./collections";
+import { promptCollectionReload, runCollectionManager } from "./collection-ui";
+import { withExtensionToggleCompletion } from "./command-completion";
+import { readExtensionChangelog, notifyExtensionUpdate } from "./changelog";
+import { runChangelogCommand } from "./changelog-ui";
 
 const COMMAND_NAME = "extension-toggle";
 const FLOATING_WINDOW_SHORTCUT = Key.ctrlShift("e");
+const FALLBACK_EDITOR = Symbol.for("pi-extension-toggle.fallback-editor");
+const UPDATE_WIDGET_KEY = "extension-toggle-updates";
+
+export async function getExtensionToggleCompletions(prefix: string): Promise<AutocompleteItem[] | null> {
+  const use = /^\s*use\s+(\S*)$/.exec(prefix);
+  if (use) {
+    try {
+      const names = Object.keys(await readCollections(getAgentDir())).sort();
+      const items = names.filter(name => name.startsWith(use[1])).map(name => ({
+        value: `use ${name}`, label: name, description: "Apply saved global configuration",
+      }));
+      return items.length ? items : null;
+    } catch {
+      return null;
+    }
+  }
+  const options = [
+    { value: "toggle", label: "toggle", description: "Enable or disable resource sources" },
+    { value: "collections", label: "collections", description: "Browse, save, rename and delete collections" },
+    { value: "changelog", label: "changelog", description: "View extension-toggle release notes" },
+    { value: "save ", label: "save <name>", description: "Save current global settings as a collection" },
+    { value: "use ", label: "use <name>", description: "Apply a saved collection" },
+    { value: "list", label: "list", description: "List saved collection names" },
+  ];
+  const items = options.filter(option => option.value.trimEnd().startsWith(prefix.trimStart()));
+  return items.length ? items : null;
+}
 
 export interface ExtensionToggleSelection {
   option: ExtensionOption;
   enabled: boolean;
 }
 
+type SaveScope = "global" | "project";
+export interface ExtensionToggleResult {
+  selections: ExtensionToggleSelection[];
+  saveScope: SaveScope;
+}
+
 const OPEN_FLOATING_WINDOW = "open-floating-window";
 type SelectExtensionTogglesResult =
-  ExtensionToggleSelection[] | null | typeof OPEN_FLOATING_WINDOW;
+  ExtensionToggleResult | null | typeof OPEN_FLOATING_WINDOW;
 type VisibleRowCount = number | (() => number);
 
 function fitControlHints(
@@ -95,10 +144,11 @@ export class ExtensionMultiSelect implements Component {
 
   constructor(
     private readonly options: ExtensionOption[],
-    private readonly done: (result: ExtensionToggleSelection[] | null) => void,
+    private readonly done: (result: ExtensionToggleResult | null) => void,
     private readonly maxVisibleRows: VisibleRowCount = 12,
     private readonly showHelpHint = false,
     private readonly floatingShortcutFooterHint: string | undefined = undefined,
+    private saveScope: SaveScope = "global",
   ) {
     for (let i = 0; i < options.length; i++) {
       if (isSourceEnabled(options[i].resources)) {
@@ -171,8 +221,9 @@ export class ExtensionMultiSelect implements Component {
   }
 
   private submit(): void {
-    this.done(
-      this.options
+    this.done({
+      saveScope: this.saveScope,
+      selections: this.options
         .map((option, index) => ({
           option,
           enabled: this.checkedIndexes.has(index),
@@ -182,7 +233,7 @@ export class ExtensionMultiSelect implements Component {
         }))
         .filter((selection) => selection.changed)
         .map(({ option, enabled }) => ({ option, enabled })),
-    );
+    });
   }
 
   private isPrintableInput(data: string): boolean {
@@ -208,6 +259,7 @@ export class ExtensionMultiSelect implements Component {
       ? [
           "↑/↓ move",
           "space toggle",
+          "ctrl+a select all",
           "type search",
           "backspace/delete remove",
           "ctrl+u clear",
@@ -221,6 +273,7 @@ export class ExtensionMultiSelect implements Component {
       : [
           "↑/↓: move",
           "space: toggle",
+          "ctrl+a: select all",
           "type: search",
           "backspace/delete: remove",
           "ctrl+u: clear",
@@ -242,6 +295,7 @@ export class ExtensionMultiSelect implements Component {
       );
     const lines = [
       fitLine("Enable or disable sources"),
+      fitLine(`Save to: ${this.saveScope === "project" ? "Repo (.pi/settings.json)" : "Global"} · Tab to switch`),
       fitLine(`Search: ${queryDisplay}`),
       "",
     ];
@@ -298,8 +352,18 @@ export class ExtensionMultiSelect implements Component {
       return;
     }
 
+    if (matchesKey(data, Key.tab)) {
+      this.saveScope = this.saveScope === "project" ? "global" : "project";
+      return;
+    }
+
     if (matchesKey(data, Key.enter)) {
       this.submit();
+      return;
+    }
+
+    if (matchesKey(data, Key.ctrl("a"))) {
+      for (const row of this.filteredOptions) this.checkedIndexes.add(row.originalIndex);
       return;
     }
 
@@ -395,6 +459,8 @@ class ExtensionToggleHelpOverlay implements Component {
       `${accent("?")} close this help overlay`,
       `${accent("↑/↓")} move selection`,
       `${accent("Space")} check or uncheck a source`,
+      `${accent("Ctrl+A")} check all matching sources`,
+      `${accent("Tab")} switch between repo and global saving`,
       `${accent("Type")} filter sources immediately`,
       `${accent("Backspace/Delete")} remove search text`,
       `${accent("Ctrl+U")} clear search text`,
@@ -514,7 +580,7 @@ const extensionToggleOverlayOptions: OverlayOptions = {
 
 function getResponsiveOverlayVisibleRows(termRows: number): number {
   const verticalMargins = 4;
-  const overlayChromeLines = 7;
+  const overlayChromeLines = 8;
   const maxOverlayHeight = Math.min(
     Math.floor(termRows * 0.8),
     Math.max(1, termRows - verticalMargins),
@@ -525,6 +591,7 @@ function getResponsiveOverlayVisibleRows(termRows: number): number {
 async function selectExtensionToggles(
   ctx: ExtensionContext,
   options: ExtensionOption[],
+  saveScope: SaveScope,
   uiOptions: SelectExtensionTogglesOptions = {},
 ): Promise<SelectExtensionTogglesResult> {
   return await ctx.ui.custom<SelectExtensionTogglesResult>(
@@ -541,6 +608,7 @@ async function selectExtensionToggles(
         !uiOptions.overlay && uiOptions.onToggleShortcut
           ? "ctrl+shift+e float"
           : undefined,
+        saveScope,
       );
       if (!showHelpHint) {
         return component;
@@ -599,31 +667,72 @@ export async function discoverExtensionResources(
   };
 }
 
-function applyExtensionToggle(
+function resolvePackageSource(source: string, baseDir: string): string {
+  const trimmed = source.trim();
+  if (/^(npm:|git:|https?:|ssh:|git@)/.test(trimmed)) return source;
+  if (trimmed.startsWith("~")) return path.join(homedir(), trimmed.slice(1));
+  return path.resolve(baseDir, trimmed);
+}
+
+export function applyExtensionToggle(
   settingsManager: SettingsManager,
   option: ExtensionOption,
   enabled: boolean,
+  saveScope: SaveScope = "global",
+  agentDir: string = getAgentDir(),
+  cwd: string = process.cwd(),
 ): boolean {
   const first = option.resources[0];
   if (!first) return false;
   assertToggleableScope(first.metadata.scope);
 
+  const targetScope = saveScope;
+
   if (option.origin === "package") {
     const settings =
-      first.metadata.scope === "project"
+      targetScope === "project"
         ? settingsManager.getProjectSettings()
         : settingsManager.getGlobalSettings();
-    const result = toggleAllPackageResources(
-      settings.packages,
-      option.sourceKey,
-      enabled,
-    );
+    let source = option.sourceKey;
+    let packages = settings.packages;
+    if ((saveScope === "project") !== (first.metadata.scope === "project")) {
+      const sourceBaseDir = first.metadata.scope === "project" ? path.join(cwd, ".pi") : agentDir;
+      const targetBaseDir = saveScope === "project" ? path.join(cwd, ".pi") : agentDir;
+      const resolvedSource = resolvePackageSource(source, sourceBaseDir);
+      const existing = (packages ?? []).find((pkg) =>
+        resolvePackageSource(typeof pkg === "string" ? pkg : pkg.source, targetBaseDir) === resolvedSource,
+      );
+      source = existing ? (typeof existing === "string" ? existing : existing.source) : resolvedSource;
+      if (!existing) packages = [...(packages ?? []), source];
+    }
+    const existingPackage = (settings.packages ?? []).find((pkg) => (typeof pkg === "string" ? pkg : pkg.source) === source);
+    const resolver = new DefaultPackageManager({ cwd, agentDir, settingsManager });
+    const reuseGlobal = targetScope === "project" && first.metadata.packageRoot !== undefined &&
+      (existingPackage === undefined || (typeof existingPackage === "object" && existingPackage.autoload === false)) &&
+      (settingsManager.getGlobalSettings().packages ?? []).some((pkg) =>
+        resolver.getInstalledPath(typeof pkg === "string" ? pkg : pkg.source, "user") === first.metadata.packageRoot,
+      );
+    const result = reuseGlobal
+      ? {
+          changed: true,
+          packages: (packages ?? []).map((pkg) => (typeof pkg === "string" ? pkg : pkg.source) === source
+            ? {
+                source,
+                autoload: false,
+                extensions: enabled ? ["**/*", ".*"] : ["!**/*", "!.*"],
+                skills: enabled ? ["**/*", ".*"] : ["!**/*", "!.*"],
+                prompts: enabled ? ["**/*", ".*"] : ["!**/*", "!.*"],
+                themes: enabled ? ["**/*", ".*"] : ["!**/*", "!.*"],
+              }
+            : pkg),
+        }
+      : toggleAllPackageResources(packages, source, enabled);
 
     if (!result.changed) {
       return false;
     }
 
-    if (first.metadata.scope === "project") {
+    if (targetScope === "project") {
       settingsManager.setProjectPackages(result.packages);
     } else {
       settingsManager.setPackages(result.packages);
@@ -633,19 +742,28 @@ function applyExtensionToggle(
 
   // origin === "top-level" — toggle this individual local resource
   const settings =
-    first.metadata.scope === "project"
+    targetScope === "project"
       ? settingsManager.getProjectSettings()
       : settingsManager.getGlobalSettings();
   const resourceType = option.resourceType;
   if (!resourceType) return false;
 
-  const updatedPaths = toggleTopLevelResourcePaths(
-    settings[resourceType],
-    option.sourceKey,
-    enabled,
-  );
+  const baseDir = targetScope === "project" ? path.join(cwd, ".pi") : agentDir;
+  const crossScope = (saveScope === "project") !== (first.metadata.scope === "project");
+  const pattern = crossScope ? first.path : option.sourceKey;
+  // Remove equivalent exact overrides, whether written as relative or absolute paths.
+  const paths = (settings[resourceType] ?? []).filter((entry) => {
+    if (!entry.startsWith("+") && !entry.startsWith("-")) return true;
+    const exactPath = path.resolve(baseDir, stripPatternPrefix(entry));
+    return exactPath !== first.path &&
+      !(resourceType === "skills" && path.basename(first.path) === "SKILL.md" && exactPath === path.dirname(first.path));
+  });
+  const updatedPaths = toggleTopLevelResourcePaths(paths, pattern, enabled);
+  if (crossScope && !updatedPaths.includes(first.path)) {
+    updatedPaths.unshift(first.path);
+  }
 
-  if (first.metadata.scope === "project") {
+  if (targetScope === "project") {
     switch (resourceType) {
       case "extensions":
         settingsManager.setProjectExtensionPaths(updatedPaths);
@@ -692,31 +810,69 @@ async function runExtensionToggle(
     return;
   }
 
-  const { agentDir, settingsManager, extensions, skills, prompts, themes } =
-    await discoverExtensionResources(ctx);
+  const discovered = await discoverExtensionResources(ctx).catch((error: unknown) => {
+    ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+  });
+  if (!discovered) return;
+  const { agentDir, settingsManager, extensions, skills, prompts, themes } = discovered;
+  try {
+    assertSettingsErrors(settingsManager);
+  } catch (error) {
+    ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+    return;
+  }
   const options = buildSourceOptions(extensions, skills, prompts, themes, {
     cwd: ctx.cwd,
     agentDir,
   });
+  const projectSettings = settingsManager.getProjectSettings();
+  const saveScope: SaveScope = ["packages", "extensions", "skills", "prompts", "themes"]
+    .some((field) => Object.hasOwn(projectSettings, field)) ? "project" : "global";
 
   if (options.length === 0) {
     ctx.ui.notify("No toggleable sources found", "info");
     return;
   }
 
-  const selectedOptions = await selectExtensionToggles(ctx, options, uiOptions);
+  const result = await selectExtensionToggles(ctx, options, saveScope, uiOptions);
 
-  if (selectedOptions === OPEN_FLOATING_WINDOW) {
+  if (result === OPEN_FLOATING_WINDOW) {
     return;
   }
 
-  if (selectedOptions === null) {
+  if (result === null) {
     ctx.ui.notify("Cancelled", "info");
     return;
   }
 
+  const { selections: selectedOptions, saveScope: selectedScope } = result;
+
   if (selectedOptions.length === 0) {
     ctx.ui.notify("No changes selected", "info");
+    return;
+  }
+
+  try {
+    for (const { option } of selectedOptions) {
+      if (option.origin !== "package") continue;
+      const resource = option.resources[0];
+      if (!resource) continue;
+      const root = resource.metadata.packageRoot;
+      if (root && resource.path !== root) continue;
+      let hasManifest = false;
+      if (root) {
+        try {
+          const manifest: unknown = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+          hasManifest = manifest !== null && typeof manifest === "object" && "pi" in manifest &&
+            manifest.pi !== null && typeof manifest.pi === "object" && !Array.isArray(manifest.pi);
+        } catch {}
+      }
+      if (!hasManifest) {
+        throw new Error(`Pi cannot apply package filters to ${option.sourceKey}. Use top-level extensions settings or a directory package with a pi manifest.`);
+      }
+    }
+  } catch (error) {
+    ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
     return;
   }
 
@@ -726,6 +882,9 @@ async function runExtensionToggle(
       settingsManager,
       selected.option,
       selected.enabled,
+      selectedScope,
+      agentDir,
+      ctx.cwd,
     );
 
     if (changed) {
@@ -765,7 +924,7 @@ async function runExtensionToggle(
     .join(", ");
 
   ctx.ui.notify(
-    `Updated ${changedOptions.length} source(s): ${summary}`,
+    `Updated ${changedOptions.length} source(s): ${summary} (saved to ${selectedScope === "project" ? ".pi/settings.json" : "global settings"})`,
     "info",
   );
 
@@ -787,6 +946,49 @@ async function runExtensionToggle(
   await uiOptions.reload();
 }
 
+async function runCollectionCommand(
+  args: string,
+  ctx: ExtensionCommandContext,
+): Promise<void> {
+  const [command, name, ...extra] = args.trim().split(/\s+/);
+  if (
+    extra.length > 0 ||
+    (command === "list" ? name !== undefined : !name) ||
+    !["save", "use", "list"].includes(command)
+  ) {
+    ctx.ui.notify("Usage: /extension-toggle toggle | collections | changelog | save <name> | use <name> | list", "error");
+    return;
+  }
+  try {
+    const agentDir = getAgentDir();
+    if (command === "list") {
+      const names = Object.keys(await readCollections(agentDir)).sort();
+      ctx.ui.notify(
+        names.length > 0 ? `Collections:\n${names.join("\n")}` : "No collections saved. Use /extension-toggle save <name>.",
+        "info",
+      );
+      return;
+    }
+    if (command === "use") {
+      const collections = await readCollections(agentDir);
+      if (!Object.hasOwn(collections, name)) {
+        throw new Error(`Unknown collection "${name}". Use /extension-toggle list.`);
+      }
+      await ctx.waitForIdle();
+      const settingsManager = SettingsManager.create(ctx.cwd, agentDir);
+      await restoreCollection(settingsManager, collections[name], { cwd: ctx.cwd, agentDir });
+      await promptCollectionReload(ctx, name);
+    } else {
+      const settingsManager = SettingsManager.create(ctx.cwd, agentDir);
+      assertSettingsErrors(settingsManager);
+      await saveCollection(agentDir, name, settingsManager.getGlobalSettings());
+      ctx.ui.notify(`Saved collection "${name}".`, "info");
+    }
+  } catch (error) {
+    ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+  }
+}
+
 async function extensionToggleHandler(
   ctx: ExtensionCommandContext,
   openFloatingWindow?: () => void,
@@ -801,6 +1003,33 @@ async function extensionToggleHandler(
 export default function (pi: ExtensionAPI) {
   let floatingWindowHandle: OverlayHandle | null = null;
   let floatingWindowPromise: Promise<void> | null = null;
+
+  pi.on("session_start", async (_event, ctx) => {
+    if (!ctx.hasUI) return;
+    try {
+      await notifyExtensionUpdate({
+        hasUI: ctx.hasUI,
+        ui: { notify: message => ctx.ui.setWidget(UPDATE_WIDGET_KEY, [message]) },
+      }, await readExtensionChangelog());
+    } catch { /* Optional update hints must not interrupt a session. */ }
+  });
+
+  pi.on("session_start", async (_event, ctx) => {
+    if (!ctx.hasUI) return;
+    const existing = ctx.ui.getEditorComponent();
+    ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+      if (existing) return withExtensionToggleCompletion(existing(tui, theme, keybindings));
+      const cached: unknown = Reflect.get(tui, FALLBACK_EDITOR);
+      const autocompleteMaxVisible = SettingsManager.create(ctx.cwd, getAgentDir()).getAutocompleteMaxVisible();
+      if (cached instanceof CustomEditor) {
+        cached.setAutocompleteMaxVisible(autocompleteMaxVisible);
+        return withExtensionToggleCompletion(cached);
+      }
+      const editor = new CustomEditor(tui, theme, keybindings, { autocompleteMaxVisible });
+      Reflect.set(tui, FALLBACK_EDITOR, editor);
+      return withExtensionToggleCompletion(editor);
+    });
+  });
 
   async function toggleFloatingWindow(ctx: ExtensionContext): Promise<void> {
     if (floatingWindowHandle) {
@@ -840,10 +1069,21 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand(COMMAND_NAME, {
     description:
-      "Enable or disable installed Pi extensions, skills, prompts, and themes",
-    handler: async (_args, ctx) =>
-      extensionToggleHandler(ctx, () => {
-        void toggleFloatingWindow(ctx);
-      }),
+      "Toggle Pi resources, manage collections, or view extension-toggle release notes",
+    getArgumentCompletions: getExtensionToggleCompletions,
+    handler: async (args, ctx) => {
+      if (args.trim() === "changelog") {
+        ctx.ui.setWidget(UPDATE_WIDGET_KEY, undefined);
+        await runChangelogCommand(ctx);
+      } else if (args.trim() === "collections") {
+        await runCollectionManager(ctx);
+      } else if (args.trim() && args.trim() !== "toggle") {
+        await runCollectionCommand(args, ctx);
+      } else {
+        await extensionToggleHandler(ctx, () => {
+          void toggleFloatingWindow(ctx);
+        });
+      }
+    },
   });
 }

@@ -1,6 +1,20 @@
-import type { ResolvedResource } from "@earendil-works/pi-coding-agent";
+import {
+  DefaultPackageManager,
+  SettingsManager,
+  type ResolvedResource,
+} from "@earendil-works/pi-coding-agent";
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative, sep } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+import {
+  readCollections,
+  restoreCollection,
+  saveCollection,
+  type ResourceSnapshot,
+} from "../collections";
 import {
   buildExtensionOptionSearchText,
   buildSourceOptions,
@@ -604,6 +618,352 @@ describe("extension-toggle utils", () => {
     assert.deepEqual(toggleAllTopLevelResources(true), []);
   });
 });
+
+describe("extension-toggle collections", () => {
+  it("round-trips only resource settings, preserving empty, partial and absent filters", async (t) => {
+    const { agentDir } = await collectionFixture(t);
+    assert.deepEqual(Object.entries(await readCollections(agentDir)), []);
+    const snapshot: ResourceSnapshot = {
+      packages: [
+        "npm:unfiltered@1",
+        { source: "npm:partial@2", autoload: false, extensions: [], skills: ["skills/review.md"], themes: [] },
+      ],
+      extensions: [],
+      prompts: ["+prompts/review.md", "-prompts/other.md"],
+    };
+    const settings = {
+      ...snapshot,
+      defaultModel: "not-a-resource",
+      theme: "dark",
+      compaction: { enabled: false },
+    };
+    await saveCollection(agentDir, "Review_1", settings);
+    await saveCollection(agentDir, "a".repeat(64), {});
+    assert.deepEqual(await readCollections(agentDir), {
+      Review_1: snapshot,
+      ["a".repeat(64)]: {},
+    });
+    assert.deepEqual(JSON.parse(await readFile(collectionPath(agentDir), "utf8")), {
+      Review_1: snapshot,
+      ["a".repeat(64)]: {},
+    });
+  });
+
+  it("refuses duplicates and invalid names without changing stored bytes", async (t) => {
+    const { agentDir } = await collectionFixture(t);
+    await saveCollection(agentDir, "baseline", { extensions: [] });
+    const before = await readFile(collectionPath(agentDir));
+    for (const name of [
+      "baseline", "", "../escape", "-leading", "_leading", "two words",
+      "a/b", "a.b", "a".repeat(65),
+    ]) {
+      await assert.rejects(saveCollection(agentDir, name, { skills: [] }));
+      assert.deepEqual(await readFile(collectionPath(agentDir)), before, name);
+    }
+  });
+
+  it("fails closed on malformed stores and invalid snapshots without replacing them", async (t) => {
+    const { agentDir } = await collectionFixture(t);
+    const malformed = [
+      "{", "null", "[]", '{"bad name":{}}',
+      '{"valid":null}', '{"valid":[]}', '{"valid":{"defaultModel":"x"}}',
+      '{"valid":{"extensions":"x"}}', '{"valid":{"skills":[1]}}',
+      '{"valid":{"packages":[null]}}', '{"valid":{"packages":[""]}}',
+      '{"valid":{"packages":[{"source":"   "}]}}',
+      '{"valid":{"packages":[{"source":"npm:foo","unknown":[]}]}}',
+      '{"valid":{"packages":[{"source":"npm:foo","themes":[false]}]}}',
+      '{"valid":{"packages":[{"source":"npm:foo","autoload":"false"}]}}',
+    ];
+    for (const contents of malformed) {
+      await writeFile(collectionPath(agentDir), contents);
+      await assert.rejects(readCollections(agentDir), contents);
+      await assert.rejects(saveCollection(agentDir, "new", {}), contents);
+      assert.equal(await readFile(collectionPath(agentDir), "utf8"), contents);
+    }
+    await writeFile(collectionPath(agentDir), '{"baseline":{}}');
+    const before = await readFile(collectionPath(agentDir));
+    await assert.rejects(saveCollection(agentDir, "invalid", {
+      packages: [{ source: "", skills: [] }],
+    }));
+    assert.deepEqual(await readFile(collectionPath(agentDir)), before);
+  });
+
+  it("surfaces storage read and write failures instead of treating them as an empty store", async (t) => {
+    const { agentDir } = await collectionFixture(t);
+    await mkdir(collectionPath(agentDir));
+    await writeFile(join(collectionPath(agentDir), "marker"), "untouched");
+    await assert.rejects(readCollections(agentDir));
+    await assert.rejects(saveCollection(agentDir, "baseline", {}));
+    assert.equal(await readFile(join(collectionPath(agentDir), "marker"), "utf8"), "untouched");
+
+    const blockedAgentDir = join(agentDir, "not-a-directory");
+    await writeFile(blockedAgentDir, "untouched");
+    await assert.rejects(saveCollection(blockedAgentDir, "baseline", {}));
+    assert.equal(await readFile(blockedAgentDir, "utf8"), "untouched");
+  });
+
+  it("restores A to B to A exactly while preserving unrelated globals and project settings", async (t) => {
+    const a: ResourceSnapshot = {
+      packages: [
+        "npm:first@1",
+        { source: "npm:second@2", autoload: false, skills: [], prompts: ["prompts/a.md"] },
+      ],
+      extensions: [],
+      skills: ["+skills/a.md"],
+    };
+    const b: ResourceSnapshot = {
+      packages: [
+        { source: "npm:first@1", extensions: [] },
+        { source: "npm:second@2", themes: [] },
+      ],
+      prompts: [],
+      themes: ["themes/b.json"],
+    };
+    const unrelated = { defaultModel: "keep", compaction: { enabled: false }, theme: "dark" };
+    const project = {
+      packages: ["npm:project-only"],
+      extensions: ["project.ts"],
+      skills: [],
+      prompts: ["project.md"],
+      themes: [],
+      defaultModel: "project-model",
+    };
+    const fixture = await collectionFixture(t, { ...a, ...unrelated }, project);
+    await saveCollection(fixture.agentDir, "A", fixture.manager.getGlobalSettings());
+    await saveCollection(fixture.agentDir, "B", b);
+    const collections = await readCollections(fixture.agentDir);
+    const projectBytes = await readFile(fixture.projectPath);
+    for (const snapshot of [collections.B, collections.A]) {
+      await restoreCollection(fixture.manager, snapshot, fixture);
+      assert.deepEqual(JSON.parse(await readFile(fixture.globalPath, "utf8")), {
+        ...unrelated,
+        ...snapshot,
+      });
+      const reloaded = SettingsManager.create(fixture.cwd, fixture.agentDir);
+      assert.deepEqual(reloaded.getGlobalSettings(), { ...unrelated, ...snapshot });
+      assert.deepEqual(reloaded.getProjectSettings(), project);
+      assert.deepEqual(await readFile(fixture.projectPath), projectBytes);
+    }
+  });
+
+  it("restores absent package declarations distinctly from an empty package array", async (t) => {
+    const fixture = await collectionFixture(t, { packages: [], extensions: [], defaultModel: "keep" });
+    await restoreCollection(fixture.manager, {}, fixture);
+    assert.deepEqual(JSON.parse(await readFile(fixture.globalPath, "utf8")), { defaultModel: "keep" });
+    await restoreCollection(fixture.manager, { packages: [], themes: [] }, fixture);
+    assert.deepEqual(JSON.parse(await readFile(fixture.globalPath, "utf8")), {
+      defaultModel: "keep", packages: [], themes: [],
+    });
+  });
+
+  it("rejects package addition, removal, version changes and reordering before any settings writes", async (t) => {
+    const fixture = await collectionFixture(t, {
+      packages: ["npm:a@1", { source: "npm:b@2", skills: [] }],
+      extensions: ["current.ts"],
+    }, { prompts: ["project.md"] });
+    const globalBefore = await readFile(fixture.globalPath);
+    const projectBefore = await readFile(fixture.projectPath);
+    for (const packages of [
+      ["npm:a@1", "npm:b@2", "npm:c@3"],
+      ["npm:a@1"],
+      ["npm:a@2", "npm:b@2"],
+      ["npm:b@2", "npm:a@1"],
+    ]) {
+      await assert.rejects(restoreCollection(fixture.manager, {
+        packages, extensions: [], skills: [], prompts: [], themes: [],
+      }, fixture));
+      assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+      assert.deepEqual(await readFile(fixture.projectPath), projectBefore);
+      assert.deepEqual(fixture.manager.getGlobalSettings(), {
+        packages: ["npm:a@1", { source: "npm:b@2", skills: [] }],
+        extensions: ["current.ts"],
+      });
+    }
+  });
+
+  it("surfaces settings read and queued write failures", async (t) => {
+    const fixture = await collectionFixture(t, { extensions: ["current.ts"] });
+    await writeFile(fixture.globalPath, "{broken");
+    const brokenManager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+    await assert.rejects(restoreCollection(brokenManager, { extensions: [] }, fixture));
+    assert.equal(await readFile(fixture.globalPath, "utf8"), "{broken");
+
+    await writeFile(fixture.globalPath, '{"extensions":["current.ts"]}');
+    const writeManager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+    await rm(fixture.globalPath);
+    await mkdir(fixture.globalPath);
+    await writeFile(join(fixture.globalPath, "marker"), "untouched");
+    await assert.rejects(restoreCollection(writeManager, { extensions: [] }, fixture));
+    assert.equal(await readFile(join(fixture.globalPath, "marker"), "utf8"), "untouched");
+  });
+
+  it("repairs equivalent local manager exclusions without changing discovery or sibling filters", async (t) => {
+    const fixture = await collectionFixture(t);
+    const extensionsDir = join(fixture.agentDir, "extensions");
+    await mkdir(extensionsDir);
+    await symlink(fileURLToPath(new URL("..", import.meta.url)), join(extensionsDir, "extension-toggle"), "dir");
+    const siblingPath = join(extensionsDir, "sibling.ts");
+    await writeFile(siblingPath, "export default function () {}");
+    const managerPath = join(extensionsDir, "extension-toggle", "index.ts");
+    const managerRelative = relative(fixture.agentDir, managerPath).split(sep).join("/");
+    const retained = ["!*", `!${managerRelative}`, "-extensions/sibling.ts", "-unrelated.ts", `-././${managerRelative}`];
+    const snapshot: ResourceSnapshot = {
+      extensions: [
+        ...retained,
+        `-${managerRelative}`, `-${managerPath}`, `-./${managerRelative}`, `-.\\${managerRelative}`,
+        `+${managerRelative}`, `+./${managerRelative}`, `+${managerPath}`,
+      ],
+      skills: [], prompts: [], themes: [],
+    };
+    const original = structuredClone(snapshot);
+    await restoreCollection(fixture.manager, snapshot, fixture);
+    const restored = JSON.parse(await readFile(fixture.globalPath, "utf8"));
+    assert.deepEqual(restored.skills, []);
+    assert.deepEqual(restored.prompts, []);
+    assert.deepEqual(restored.themes, []);
+    const resolved = await new DefaultPackageManager({
+      cwd: fixture.cwd,
+      agentDir: fixture.agentDir,
+      settingsManager: SettingsManager.create(fixture.cwd, fixture.agentDir),
+    }).resolve();
+    const managerResource = resolved.extensions.find(isExtensionToggleManager);
+    assert.ok(managerResource);
+    assert.equal(managerResource.enabled, true);
+    assert.equal(resolved.extensions.find((entry) => entry.path === siblingPath)?.enabled, false);
+    assert.deepEqual(restored.extensions, [...retained, `+${managerPath.split(sep).join("/")}`]);
+    assert.deepEqual(snapshot, original);
+    const firstRestore = await readFile(fixture.globalPath, "utf8");
+    await restoreCollection(fixture.manager, snapshot, fixture);
+    assert.equal(await readFile(fixture.globalPath, "utf8"), firstRestore);
+  });
+
+  it("preserves external manager file discovery whether missing or retained while disabled", async (t) => {
+    for (const retainDiscovery of [false, true]) {
+      const fixture = await collectionFixture(t);
+      const externalDir = join(fixture.cwd, "external");
+      await mkdir(externalDir);
+      const managerPath = join(externalDir, "index.ts");
+      await symlink(fileURLToPath(new URL("../index.ts", import.meta.url)), managerPath);
+      const externalSiblingPath = join(externalDir, "sibling.ts");
+      await writeFile(externalSiblingPath, "export default function () {}");
+      await mkdir(join(fixture.agentDir, "extensions"));
+      const siblingPath = join(fixture.agentDir, "extensions", "sibling.ts");
+      await writeFile(siblingPath, "export default function () {}");
+      fixture.manager.setExtensionPaths([managerPath]);
+      await fixture.manager.flush();
+      const managerRelative = relative(fixture.agentDir, managerPath).split(sep).join("/");
+      const snapshot: ResourceSnapshot = {
+        extensions: [
+          ...(retainDiscovery ? [managerPath] : []),
+          "!*", `-${managerRelative}`, `-./${managerRelative}`, `-.\\${managerRelative}`, `-${managerPath}`,
+        ],
+      };
+      const original = structuredClone(snapshot);
+      await restoreCollection(fixture.manager, snapshot, fixture);
+      const restored = SettingsManager.create(fixture.cwd, fixture.agentDir);
+      const resolved = await new DefaultPackageManager({
+        cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: restored,
+      }).resolve();
+      assert.equal(resolved.extensions.find((entry) => entry.path === managerPath)?.enabled, true);
+      assert.equal(resolved.extensions.find((entry) => entry.path === siblingPath)?.enabled, false);
+      assert.equal(resolved.extensions.some((entry) => entry.path === externalSiblingPath), false);
+      assert.deepEqual(restored.getGlobalSettings().extensions, [
+        ...(retainDiscovery ? [managerPath, "!*"] : ["!*", managerPath]),
+        `+${managerPath.split(sep).join("/")}`,
+      ]);
+      assert.deepEqual(snapshot, original);
+      const firstRestore = await readFile(fixture.globalPath, "utf8");
+      await restoreCollection(fixture.manager, snapshot, fixture);
+      assert.equal(await readFile(fixture.globalPath, "utf8"), firstRestore);
+    }
+  });
+
+  it("leaves a project-only manager outside global restoration", async (t) => {
+    const fixture = await collectionFixture(t, { extensions: ["!*"] });
+    const extensionsDir = join(fixture.cwd, ".pi", "extensions");
+    await mkdir(extensionsDir);
+    await symlink(fileURLToPath(new URL("..", import.meta.url)), join(extensionsDir, "extension-toggle"), "dir");
+    const projectBefore = await readFile(fixture.projectPath, "utf8");
+    await restoreCollection(fixture.manager, {}, fixture);
+    assert.deepEqual(SettingsManager.create(fixture.cwd, fixture.agentDir).getGlobalSettings(), {});
+    assert.equal(await readFile(fixture.projectPath, "utf8"), projectBefore);
+    const resolved = await new DefaultPackageManager({
+      cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: fixture.manager,
+    }).resolve();
+    const managerResource = resolved.extensions.find(isExtensionToggleManager);
+    assert.equal(managerResource?.metadata.scope, "project");
+    assert.equal(managerResource?.enabled, true);
+  });
+
+  it("protects the manager without enabling sibling extensions in the same package", async (t) => {
+    const fixture = await collectionFixture(t);
+    const packageDir = join(fixture.agentDir, "extension-toggle");
+    await mkdir(packageDir);
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({
+      pi: { extensions: ["index.ts", "sibling.ts"] },
+    }));
+    await symlink(fileURLToPath(new URL("../index.ts", import.meta.url)), join(packageDir, "index.ts"));
+    const siblingPath = join(packageDir, "sibling.ts");
+    await writeFile(siblingPath, "export default function () {}");
+    const managerPath = join(packageDir, "index.ts");
+    const retained = ["index.ts", "!*", "!index.ts", "-sibling.ts", "+missing.ts", "-././index.ts"];
+    for (const extensions of [
+      [],
+      [
+        ...retained,
+        "-index.ts", "-./index.ts", "-.\\index.ts", `-${managerPath}`,
+        "+./index.ts", `+${managerPath}`, "+index.ts",
+      ],
+    ]) {
+      const snapshot: ResourceSnapshot = {
+        packages: [{ source: packageDir, extensions, skills: ["skills/review.md"], prompts: [] }],
+      };
+      const original = structuredClone(snapshot);
+      fixture.manager.setPackages(snapshot.packages!);
+      await fixture.manager.flush();
+      await restoreCollection(fixture.manager, snapshot, fixture);
+      assert.deepEqual(fixture.manager.getGlobalSettings().packages, [
+        {
+          source: packageDir, extensions: [...(extensions.length === 0 ? ["!*"] : retained), "+index.ts"],
+          skills: ["skills/review.md"], prompts: [],
+        },
+      ]);
+      assert.deepEqual(snapshot, original);
+      const resolved = await new DefaultPackageManager({
+        cwd: fixture.cwd,
+        agentDir: fixture.agentDir,
+        settingsManager: SettingsManager.create(fixture.cwd, fixture.agentDir),
+      }).resolve();
+      assert.equal(resolved.extensions.find((entry) => entry.path === managerPath)?.enabled, true);
+      assert.equal(resolved.extensions.find((entry) => entry.path === siblingPath)?.enabled, false);
+      const firstRestore = await readFile(fixture.globalPath, "utf8");
+      await restoreCollection(fixture.manager, snapshot, fixture);
+      assert.equal(await readFile(fixture.globalPath, "utf8"), firstRestore);
+    }
+  });
+});
+
+function collectionPath(agentDir: string): string {
+  return join(agentDir, "extension-toggle-collections.json");
+}
+
+async function collectionFixture(
+  t: { after: (fn: () => Promise<void>) => void },
+  global: object = {},
+  project: object = {},
+) {
+  const root = await mkdtemp(join(tmpdir(), "extension-toggle-collections-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const cwd = join(root, "project");
+  const agentDir = join(root, "agent");
+  await mkdir(join(cwd, ".pi"), { recursive: true });
+  await mkdir(agentDir);
+  const globalPath = join(agentDir, "settings.json");
+  const projectPath = join(cwd, ".pi", "settings.json");
+  await writeFile(globalPath, JSON.stringify(global));
+  await writeFile(projectPath, JSON.stringify(project));
+  return { cwd, agentDir, globalPath, projectPath, manager: SettingsManager.create(cwd, agentDir) };
+}
 
 function resource(options: {
   path: string;
