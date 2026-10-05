@@ -626,7 +626,7 @@ describe("extension-toggle collections", () => {
     const snapshot: ResourceSnapshot = {
       packages: [
         "npm:unfiltered@1",
-        { source: "npm:partial@2", extensions: [], skills: ["skills/review.md"], themes: [] },
+        { source: "npm:partial@2", autoload: false, extensions: [], skills: ["skills/review.md"], themes: [] },
       ],
       extensions: [],
       prompts: ["+prompts/review.md", "-prompts/other.md"],
@@ -672,6 +672,7 @@ describe("extension-toggle collections", () => {
       '{"valid":{"packages":[{"source":"   "}]}}',
       '{"valid":{"packages":[{"source":"npm:foo","unknown":[]}]}}',
       '{"valid":{"packages":[{"source":"npm:foo","themes":[false]}]}}',
+      '{"valid":{"packages":[{"source":"npm:foo","autoload":"false"}]}}',
     ];
     for (const contents of malformed) {
       await writeFile(collectionPath(agentDir), contents);
@@ -705,7 +706,7 @@ describe("extension-toggle collections", () => {
     const a: ResourceSnapshot = {
       packages: [
         "npm:first@1",
-        { source: "npm:second@2", skills: [], prompts: ["prompts/a.md"] },
+        { source: "npm:second@2", autoload: false, skills: [], prompts: ["prompts/a.md"] },
       ],
       extensions: [],
       skills: ["+skills/a.md"],

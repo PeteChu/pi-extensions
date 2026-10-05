@@ -14,10 +14,13 @@
     "collections.ts",
     "collection-ui.ts",
     "command-completion.ts",
-    "README.md"
+    "README.md",
+    "changelog.ts",
+    "changelog-ui.ts",
+    "CHANGELOG.md"
   ],
   "scripts": {
-    "test": "node --import tsx --test ./tests/utils.test.ts ./tests/index.test.ts ./tests/collection-ui.test.ts"
+    "test": "node --import tsx --test ./tests/*.test.ts"
   },
   "pi": {
     "extensions": [
@@ -25,10 +28,10 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-agent-core": "*",
-    "@earendil-works/pi-coding-agent": ">=0.74.0",
-    "@earendil-works/pi-tui": ">=0.74.0",
+    "@earendil-works/pi-ai": ">=1.0.2",
+    "@earendil-works/pi-agent-core": ">=1.0.2",
+    "@earendil-works/pi-coding-agent": ">=1.0.2",
+    "@earendil-works/pi-tui": ">=1.0.2",
     "typebox": "*"
   }
 }

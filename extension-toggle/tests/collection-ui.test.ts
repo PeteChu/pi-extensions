@@ -19,6 +19,7 @@ function completionEditor(cwd = process.cwd()) {
     { requestRender() { for (const check of pending) check(); }, terminal: { columns: 100, rows: 24 } } as never,
     { borderColor: plain, selectList: { selectedPrefix: plain, selectedText: plain, description: plain, scrollInfo: plain, noMatch: plain } },
   ));
+  editor.setAutocompleteMaxVisible(6);
   const provider = new CombinedAutocompleteProvider([
     { name: "extension-toggle", getArgumentCompletions: getExtensionToggleCompletions },
     { name: "other" },
@@ -67,7 +68,7 @@ describe("extension-toggle Tab completion", { concurrency: false, timeout: 5000 
     await waitForRender(() => editor.render(100).join("\n").includes("save <name>"));
     assert.equal(editor.getText(), "/extension-toggle ");
     const menu = editor.render(100).join("\n");
-    for (const label of ["toggle", "collections", "save <name>", "use <name>", "list"]) assert.ok(menu.includes(label), label);
+    for (const label of ["toggle", "collections", "changelog", "save <name>", "use <name>", "list"]) assert.ok(menu.includes(label), label);
     assert.equal(submitted, undefined);
     editor.handleInput("\x1b[B");
     editor.handleInput("\t");
@@ -115,7 +116,9 @@ describe("extension-toggle Tab completion", { concurrency: false, timeout: 5000 
       editor.handleInput(key);
       await waitForRender(() => editor.render(100).join("\n").includes("use <name>"));
       assert.equal(editor.getText(), "/extension-toggle ");
-      for (let i = 0; i < 3; i++) editor.handleInput("\x1b[B");
+      const useIndex = (await getExtensionToggleCompletions(""))!.findIndex(item => item.value === "use ");
+      assert.ok(useIndex >= 0);
+      for (let i = 0; i < useIndex; i++) editor.handleInput("\x1b[B");
       editor.handleInput(key);
       await waitForRender(() => editor.render(100).join("\n").includes("baseline"));
       assert.equal(editor.getText(), "/extension-toggle use ");

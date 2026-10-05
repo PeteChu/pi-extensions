@@ -4,7 +4,7 @@ Toggle installed Pi extensions, skills, prompts, and themes, and save named glob
 
 ## Install
 
-Requires Pi 0.74.0 or newer.
+Requires Pi 1.0.2 or newer.
 
 ```bash
 pi install npm:@petechu/pi-extension-toggle
@@ -20,7 +20,7 @@ After installing, run:
 ```
 
 Use Tab, or your configured completion key, to complete `/extension-toggle` and
-select `toggle`, `collections`, `save <name>`, `use <name>`, or `list`.
+select `toggle`, `collections`, `changelog`, `save <name>`, `use <name>`, or `list`.
 Selecting `use <name>` opens saved collection names. Typing
 `/extension-toggle use ` also shows them. The extension preserves your configured
 autocomplete menu size and input history across reloads. `toggle` opens the same
@@ -40,6 +40,26 @@ The command shows grouped entries by source with their current state:
 ```
 
 The picker opens ready for typing: type an extension, skill, prompt, theme, package, or path name to filter the list immediately. Move through the filtered entries with the arrow keys. Check or uncheck the highlighted source with `space`, then press `enter` to apply changes. Checked sources are enabled; unchecked sources are disabled. Package sources are toggled as a unit; top-level local resources are toggled individually. The extension writes the matching global or project settings changes, then asks whether to reload immediately. Confirm the reload for the changes to take effect right away.
+
+## Repository persistence
+
+Press **Tab** in either picker to switch between **Repo** and **Global** saving. The current destination appears above the search field. Press **Enter** to save changed sources to that destination. Switching the destination preserves your search and pending selections. Cancelling or applying without changed sources writes nothing.
+
+Normal `pi` and the picker use global settings plus the current directory's `.pi/settings.json`. They do not search parent directories or the Git root.
+
+To use repository-root settings, start `pi` from that root. To keep separate settings in another directory, start `pi` there, select **Repo** with **Tab**, change a source, and save. **Repo** means the current directory, not an automatically selected Git root.
+
+If the current directory's `.pi/settings.json` defines `packages`, `extensions`, `skills`, `prompts`, or `themes`, the picker defaults to Repo. Empty arrays count as configuration. Without these fields, it defaults to Global. Other project settings, such as the model, do not change this default.
+
+Repo writes go to `<current directory>/.pi/settings.json`. Global writes go to `<getAgentDir()>/settings.json`, normally `~/.pi/agent/settings.json`, even for project-origin resources. Existing settings in the other destination remain untouched. Project configuration can still override global changes. To return to managing global settings by default, manually remove the project resource fields or the project settings file. Preserve unrelated project settings if you still need them.
+
+Tab chooses a destination for the current picker only. It does not move or delete configuration. The former `/extension-toggle scope` command is removed, and legacy `extension-toggle.json` preference files no longer affect saving. Collections remain global.
+
+When you save a globally installed package to Repo, the manager writes an `autoload: false` filtering delta that reuses the global installation. Enabling and disabling replace the package's four resource filters, including hidden resources. Existing normal project declarations remain normal declarations, and project-only packages keep their own installation. Relative local package paths become absolute unless an equivalent declaration already exists in the destination. Global settings remain unchanged by Repo saves.
+
+Standalone resources saved across scopes receive absolute discovery paths and exact include or exclude patterns. Absolute paths are specific to this machine and checkout. They are not portable to another machine.
+
+Pi cannot apply package filters to a package declared as a single extension file or a bare extension directory without a `pi` manifest or resource subdirectories. The picker rejects these toggles before writing any selected changes. Configure a standalone resource in the top-level `extensions` list instead of `packages`, or give a directory package a `pi.extensions` manifest.
 
 ## Collections
 
@@ -78,7 +98,7 @@ Save and restore named **global** resource configurations without opening the pi
 /reload
 ```
 
-`save <name>` captures only `packages`, `extensions`, `skills`, `prompts`, and `themes` from global settings. Package objects retain their exact resource filters, including empty arrays and partially enabled packages; missing settings remain missing. Models, credentials, tools, and unrelated settings are not captured or restored.
+`save <name>` captures only `packages`, `extensions`, `skills`, `prompts`, and `themes` from global settings. Package objects retain their exact resource filters and `autoload` setting, including empty arrays and partially enabled packages; missing settings remain missing. Models, credentials, tools, and unrelated settings are not captured or restored.
 
 Collections persist in `<getAgentDir()>/extension-toggle-collections.json` (normally `~/.pi/agent/extension-toggle-collections.json`). Names are case-sensitive, 1–64 letters, digits, underscores, or hyphens, starting with a letter or digit. Duplicate names are refused, not overwritten. Invalid names or malformed collection data fail without replacing existing data; saves use a temporary file and rename.
 
@@ -93,12 +113,33 @@ Collection scope and limits:
 - Concurrent saves from multiple sessions are last-writer-wins; avoid editing collections concurrently.
 - Project collections, individual-resource collection editing, additive collections, automatic reload, and active-collection indicators are not included.
 
-## Search
+## Extension-toggle release notes
+
+Run `/extension-toggle changelog` to read what changed in extension-toggle. The command opens its release history directly, without a package picker. It never shows release notes or update hints for other installed Pi extensions.
+
+Use Up/Down to scroll. In regular TUI mode, Page Up/Page Down also scroll the release notes. In fullscreen mode, Pi reserves page keys for transcript scrolling. Esc or Ctrl+C closes the viewer.
+
+At session start or `/reload`, an extension-toggle version increase produces a short hint:
+
+```text
+extension-toggle updated (0.1.3 → 0.2.0). Run /extension-toggle changelog to see what changed.
+```
+
+The hint stays above the editor until you open the release notes or reload again. Release notes are not displayed automatically or sent to the model. The first interactive load records a baseline silently. Unchanged versions, downgrades, and returning to a previously announced version stay quiet. Noninteractive runs do not consume update hints.
+
+The viewer reads `package.json` and `CHANGELOG.md` bundled beside the loaded extension-toggle code. This works with npm installations, local packages, and direct loading of `extension-toggle/index.ts`. It omits Unreleased sections and releases newer than that installation's version. It does not scan other packages, fetch releases, or install anything.
+
+Seen versions persist in `<getAgentDir()>/extension-toggle/changelog-seen-v1.json`, keyed by the loaded installation's directory. Different installation paths have separate baselines. Writes use atomic replacement, and checks are serialized within one process. Simultaneous Pi processes can still duplicate hints or lose recorded baselines. Run `/reload` after updating extension files to activate the new code.
+
+To prepare release notes, edit `extension-toggle/CHANGELOG.md` directly and move any Unreleased notes into a section matching `extension-toggle/package.json`'s version. The package bundles this file without a generation or synchronization step.
+
+## Picker search
 
 The picker is always searchable, so printable characters filter sources as you type. While using it:
 
 - use the arrow keys to move through matching sources;
 - use Space to toggle the highlighted source;
+- use Tab to switch between Repo and Global saving;
 - use Backspace/Delete to remove characters;
 - use Ctrl+U to clear the query;
 - use Esc to clear the query, or cancel when it is already empty;
@@ -121,13 +162,13 @@ The extension has three layers: **discovery**, **selection**, and **settings upd
 
 ### Discovery
 
-When `/extension-toggle` starts, it waits for the current session to become idle, then resolves Pi resources from both the global agent directory and the current project's `.pi/` directory. It asks Pi's package manager for the installed extensions, skills, prompts, and themes, then filters the list down to resources that can be toggled from settings.
+When `/extension-toggle` starts, it waits for the current session to become idle, then resolves Pi resources from both the global agent directory and the current directory's `.pi/` directory. It asks Pi's package manager for the installed extensions, skills, prompts, and themes, then filters the list down to resources that can be toggled from settings.
 
 The toggle manager excludes itself from this list so you cannot accidentally disable `/extension-toggle` while using it. Package resources are grouped by package source, while top-level local resources are grouped by their scope, type, and path relative to `~/.pi/agent/` or `.pi/`.
 
 ### Selection
 
-The command renders an interactive multi-select list. Each row starts checked if any resource in that source is currently enabled, and only rows whose checked state changes are applied when you press Enter.
+The command renders an interactive multi-select list. Each row starts checked if the selected configuration enables any resource in that source. Only rows whose checked state changes are applied when you press Enter.
 
 Search mode filters rows without losing pending toggle state. The search index includes the visible label, source key, resource type, resource path, and Pi metadata, so queries can match package names, local resource names, nested file names, or paths.
 

@@ -112,7 +112,9 @@ export function toggleTopLevelResourcePaths(
   exactPattern: string,
   enabled: boolean,
 ): string[] {
-  return toggleExtensionPatterns(paths, exactPattern, enabled);
+  const updated = toggleExtensionPatterns(paths, exactPattern, enabled);
+  if (paths?.includes(exactPattern)) updated.unshift(exactPattern);
+  return updated;
 }
 
 export const toggleTopLevelExtensionPaths = toggleTopLevelResourcePaths;
@@ -143,6 +145,7 @@ export function toggleAllPackageResources(
     typeof currentPackage === "string"
       ? { source: currentPackage }
       : { ...currentPackage };
+  delete packageObject.autoload;
 
   if (enable) {
     // Clear all filters to enable all resources
@@ -351,7 +354,7 @@ export function buildSourceOptions(
     const { resource, type } = entry;
     const key =
       resource.metadata.origin === "package"
-        ? resource.metadata.source
+        ? `${resource.metadata.scope}:${resource.metadata.source}`
         : `${resource.metadata.scope}:${type}:${getTopLevelPattern(
             resource,
             context?.cwd ?? "",
@@ -388,7 +391,7 @@ export function buildSourceOptions(
       label,
       resources: entries.map((entry) => entry.resource),
       sourceKey:
-        firstResource.metadata.origin === "package" ? key : (pattern ?? key),
+        firstResource.metadata.origin === "package" ? firstResource.metadata.source : (pattern ?? key),
       scope,
       origin: firstResource.metadata.origin,
       resourceType:

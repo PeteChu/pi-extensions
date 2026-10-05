@@ -47,7 +47,8 @@ function validateSnapshot(value: unknown): asserts value is ResourceSnapshot {
   if (!Array.isArray(value.packages) || !value.packages.every((pkg) => {
     if (typeof pkg === "string") return pkg.trim().length > 0;
     return isObject(pkg) && typeof pkg.source === "string" && pkg.source.trim().length > 0 &&
-      Object.keys(pkg).every((key) => key === "source" || RESOURCE_FIELDS.includes(key as typeof RESOURCE_FIELDS[number])) &&
+      Object.keys(pkg).every((key) => key === "source" || key === "autoload" || RESOURCE_FIELDS.includes(key as typeof RESOURCE_FIELDS[number])) &&
+      (!Object.hasOwn(pkg, "autoload") || typeof pkg.autoload === "boolean") &&
       RESOURCE_FIELDS.every((field) => !Object.hasOwn(pkg, field) || isStringArray(pkg[field]));
   })) {
     throw new Error("Invalid collection packages: expected package sources with string-array filters");

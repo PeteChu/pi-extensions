@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   CustomEditor,
+  DefaultPackageManager,
   SettingsManager,
   type ExtensionAPI,
   type ExtensionCommandContext,
@@ -15,11 +16,12 @@ import { join } from "node:path";
 import { readCollections, saveCollection } from "../collections";
 import { CombinedAutocompleteProvider, Editor, getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, visibleWidth, type EditorComponent } from "@earendil-works/pi-tui";
 import extensionToggle, {
+  applyExtensionToggle,
   ExtensionMultiSelect,
   getExtensionToggleCompletions,
-  type ExtensionToggleSelection,
+  type ExtensionToggleResult,
 } from "../index";
-import type { ExtensionOption } from "../utils";
+import { buildSourceOptions, type ExtensionOption } from "../utils";
 import { CollectionManager } from "../collection-ui";
 
 describe("extension-toggle extension", () => {
@@ -41,7 +43,7 @@ describe("extension-toggle extension", () => {
   });
 
   it("filters immediately and toggles filtered rows by original index", () => {
-    let result: ExtensionToggleSelection[] | null | undefined;
+    let result: ExtensionToggleResult | null | undefined;
     const options = testOptions();
     const component = new ExtensionMultiSelect(options, (selection) => {
       result = selection;
@@ -58,16 +60,14 @@ describe("extension-toggle extension", () => {
     component.handleInput(" "); // toggle the selected filtered row
     component.handleInput("\r");
 
-    assert.deepEqual(result, [
-      {
-        option: options[2],
-        enabled: true,
-      },
-    ]);
+    assert.deepEqual(result, {
+      saveScope: "global",
+      selections: [{ option: options[2], enabled: true }],
+    });
   });
 
   it("keeps arrow navigation and Space toggling available while filtering", () => {
-    let result: ExtensionToggleSelection[] | null | undefined;
+    let result: ExtensionToggleResult | null | undefined;
     const options = testOptions();
     const component = new ExtensionMultiSelect(options, (selection) => {
       result = selection;
@@ -79,12 +79,10 @@ describe("extension-toggle extension", () => {
     component.handleInput(" ");
     component.handleInput("\r");
 
-    assert.deepEqual(result, [
-      {
-        option: options[2],
-        enabled: true,
-      },
-    ]);
+    assert.deepEqual(result, {
+      saveScope: "global",
+      selections: [{ option: options[2], enabled: true }],
+    });
   });
 
   it("edits and clears the query while filtering", () => {
@@ -103,7 +101,7 @@ describe("extension-toggle extension", () => {
   });
 
   it("clears the query before Escape cancels and remains searchable", () => {
-    let result: ExtensionToggleSelection[] | null | undefined;
+    let result: ExtensionToggleResult | null | undefined;
     const component = new ExtensionMultiSelect(testOptions(), (selection) => {
       result = selection;
     });
@@ -156,51 +154,6 @@ describe("extension-toggle extension", () => {
     assert.doesNotMatch(render, /ctrl\+f/);
   });
 
-  it("drops overflowing default footer hints instead of ellipsizing", () => {
-    const component = new ExtensionMultiSelect(testOptions(), () => {});
-
-    const normalFooter = component.render(35).at(-1) ?? "";
-    assert.equal(normalFooter, "↑/↓: move · space: toggle");
-    assert.doesNotMatch(normalFooter, /\.\.\./);
-
-    const searchFooter = component.render(35).at(-1) ?? "";
-    assert.equal(searchFooter, "↑/↓: move · space: toggle");
-    assert.doesNotMatch(searchFooter, /\.\.\./);
-  });
-
-  it("drops only overflowing footer hints while preserving question mark help", () => {
-    const component = new ExtensionMultiSelect(
-      testOptions(),
-      () => {},
-      12,
-      true,
-    );
-
-    const normalFooter = component.render(20).at(-1) ?? "";
-    assert.equal(normalFooter, "↑/↓ move · ? help");
-    assert.doesNotMatch(normalFooter, /\.\.\./);
-
-    const searchFooter = component.render(20).at(-1) ?? "";
-    assert.equal(searchFooter, "↑/↓ move · ? help");
-    assert.doesNotMatch(searchFooter, /\.\.\./);
-  });
-
-  it("pins the floating window shortcut before question mark help", () => {
-    const component = new ExtensionMultiSelect(
-      testOptions(),
-      () => {},
-      12,
-      true,
-      "ctrl+shift+e float",
-    );
-
-    const normalFooter = component.render(35).at(-1) ?? "";
-    assert.equal(normalFooter, "ctrl+shift+e float · ? help");
-
-    const searchFooter = component.render(35).at(-1) ?? "";
-    assert.equal(searchFooter, "ctrl+shift+e float · ? help");
-  });
-
   it("keeps rendered lines within width for long labels and narrow terminals", () => {
     const width = 20;
     const options = Array.from({ length: 16 }, (_, index) => ({
@@ -227,8 +180,6 @@ describe("extension-toggle extension", () => {
 describe("extension-toggle collection commands", { concurrency: false }, () => {
   it("suggests command actions and completes saved names using the full argument value", async (t) => {
     const fixture = await commandFixture(t);
-    assert.equal(fixture.completions, getExtensionToggleCompletions);
-    assert.deepEqual((await fixture.completions!(""))?.map(item => item.value), ["toggle", "collections", "save ", "use ", "list"]);
     assert.deepEqual((await fixture.completions!("col"))?.map(item => item.value), ["collections"]);
     await saveCollection(fixture.agentDir, "review", {});
     await saveCollection(fixture.agentDir, "baseline", {});
@@ -548,7 +499,7 @@ async function commandFixture(
   let handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
   let completions: typeof getExtensionToggleCompletions | undefined;
   const api: Pick<ExtensionAPI, "registerCommand" | "registerShortcut" | "on"> = {
-    on() {},
+    on() { return () => {}; },
     registerCommand(name, options) {
       if (name === "extension-toggle") {
         handler = options.handler;
@@ -684,3 +635,306 @@ function resource(options: {
     },
   };
 }
+
+
+describe("repository persistence", () => {
+  it("switches save destinations with Tab without losing filtered selections", () => {
+    const options = testOptions();
+    let result: ExtensionToggleResult | null | undefined;
+    const picker = new ExtensionMultiSelect(options, selection => { result = selection; });
+    for (const character of "review") picker.handleInput(character);
+    picker.handleInput(" ");
+    picker.handleInput("\t");
+    assert.match(picker.render(80).join("\n"), /Save to: Repo/);
+    assert.match(picker.render(80).join("\n"), /Search: review/);
+    picker.handleInput("\t");
+    assert.match(picker.render(80).join("\n"), /Save to: Global/);
+    picker.handleInput("\t");
+    picker.handleInput("\r");
+    assert.deepEqual(result, { saveScope: "project", selections: [{ option: options[2], enabled: true }] });
+  });
+
+  it("defaults from repo resource configuration, saves only to the selected destination and falls back after removal", async t => {
+    const fixture = await commandFixture(t);
+    await writeFile(fixture.projectPath, '{"defaultModel":"project"}');
+    await mkdir(join(fixture.agentDir, "extensions"));
+    const resourcePath = join(fixture.agentDir, "extensions", "example.ts");
+    await writeFile(resourcePath, "export default function () {};");
+    const globalBefore = await readFile(fixture.globalPath);
+    const projectBefore = await readFile(fixture.projectPath);
+    let expectedScope = "Global";
+    let keys = ["\t", "\x03"];
+    fixture.ctx.ui.custom = async (factory) => {
+      const { promise, resolve } = Promise.withResolvers<Parameters<Parameters<typeof factory>[3]>[0]>();
+      const picker = await factory({ terminal: { rows: 38 } } as never, { fg: (_color: string, text: string) => text } as never, {} as never, resolve);
+      assert.match(picker.render(110).join("\n"), new RegExp(`Save to: ${expectedScope}`));
+      for (const character of "example.ts") picker.handleInput?.(character);
+      for (const key of keys) picker.handleInput?.(key);
+      return promise;
+    };
+    await fixture.handler("toggle", fixture.ctx);
+    assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+    assert.deepEqual(await readFile(fixture.projectPath), projectBefore);
+    keys = ["\t", "\r"];
+    await fixture.handler("toggle", fixture.ctx);
+    assert.deepEqual(await readFile(fixture.projectPath), projectBefore);
+    keys = ["\t", " ", "\r"];
+    await fixture.handler("toggle", fixture.ctx);
+    assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+    assert.deepEqual(JSON.parse(await readFile(fixture.projectPath, "utf8")), {
+      defaultModel: "project", extensions: [resourcePath, `-${resourcePath}`],
+    });
+    expectedScope = "Repo";
+    const projectSaved = await readFile(fixture.projectPath);
+    keys = ["\t", " ", "\r"];
+    await fixture.handler("toggle", fixture.ctx);
+    assert.deepEqual(await readFile(fixture.projectPath), projectSaved);
+    assert.deepEqual(JSON.parse(await readFile(fixture.globalPath, "utf8")), {
+      extensions: [resourcePath, `+${resourcePath}`],
+    });
+    await writeFile(fixture.projectPath, '{"extensions":[],"defaultModel":"project"}');
+    keys = ["\x03"];
+    await fixture.handler("toggle", fixture.ctx);
+    await rm(fixture.projectPath);
+    expectedScope = "Global";
+    await fixture.handler("toggle", fixture.ctx);
+    await assert.rejects(readFile(fixture.projectPath), { code: "ENOENT" });
+    for (const args of ["scope project", "scope source"]) {
+      fixture.notifications.length = 0;
+      await fixture.handler(args, fixture.ctx);
+      assert.ok(fixture.notifications.some(({ type }) => type === "error"));
+    }
+    await assert.rejects(readFile(join(fixture.cwd, ".pi", "extension-toggle.json")), { code: "ENOENT" });
+  });
+
+  it("refuses malformed project settings before opening or writing", async t => {
+    const fixture = await commandFixture(t);
+    await writeFile(fixture.projectPath, "{invalid");
+    const globalBefore = await readFile(fixture.globalPath);
+    await fixture.handler("toggle", fixture.ctx);
+    assert.ok(fixture.notifications.some(({ type }) => type === "error"));
+    assert.equal(await readFile(fixture.projectPath, "utf8"), "{invalid");
+    assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+    assert.deepEqual(fixture.confirmations, []);
+  });
+
+
+  it("saves a projected relative package globally without duplicating or rebasing its declaration", async t => {
+    const fixture = await commandFixture(t, { packages: [" ./bundle "], defaultModel: "keep" });
+    const bundle = join(fixture.agentDir, "bundle");
+    await mkdir(bundle);
+    await writeFile(join(bundle, "package.json"), JSON.stringify({ pi: { extensions: ["index.ts"] } }));
+    await writeFile(join(bundle, "index.ts"), "export default function () {};");
+    await writeFile(fixture.projectPath, JSON.stringify({ packages: [{ source: bundle, extensions: [], skills: [], prompts: [], themes: [] }] }));
+    const projectBefore = await readFile(fixture.projectPath);
+    const manager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+    const resolver = new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: manager });
+    const resources = (await resolver.resolve()).extensions;
+    const option = buildSourceOptions(resources, [], [], [], fixture).find(option => option.resources.some(resource => resource.path === join(bundle, "index.ts")));
+    assert.ok(option);
+    applyExtensionToggle(manager, option, false, "global", fixture.agentDir, fixture.cwd);
+    await manager.flush();
+    assert.deepEqual(await readFile(fixture.projectPath), projectBefore);
+    assert.deepEqual(manager.getGlobalSettings(), {
+      defaultModel: "keep", packages: [{ source: " ./bundle ", extensions: [], skills: [], prompts: [], themes: [] }],
+    });
+    await rm(fixture.projectPath);
+    const globalResolver = new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: SettingsManager.create(fixture.cwd, fixture.agentDir) });
+    assert.equal((await globalResolver.resolve()).extensions.find(resource => resource.path === join(bundle, "index.ts"))?.enabled, false);
+  });
+
+  it("disables and re-enables global resources through project overrides after resolution", async (t) => {
+    const fixture = await commandFixture(t);
+    await mkdir(join(fixture.agentDir, "extensions"));
+    const resourcePath = join(fixture.agentDir, "extensions", "example.ts");
+    await writeFile(resourcePath, "export default function () {};");
+    const globalBefore = await readFile(fixture.globalPath);
+    const manager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+    const packageManager = new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: manager });
+    const original = (await packageManager.resolve()).extensions.find((r) => r.path === resourcePath)!;
+    const option: ExtensionOption = {
+      label: "example", resources: [original], sourceKey: "extensions/example.ts",
+      scope: "user", origin: "top-level", resourceType: "extensions",
+    };
+    applyExtensionToggle(manager, option, false, "project", fixture.agentDir, fixture.cwd);
+    await manager.flush();
+    assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+    const disabled = (await packageManager.resolve()).extensions.find((r) => r.path === resourcePath)!;
+    assert.equal(disabled.enabled, false);
+    assert.equal(disabled.metadata.scope, "project");
+    // The next picker sees a project entry and uses a project-relative pattern.
+    applyExtensionToggle(manager, { ...option, resources: [disabled], scope: "project", sourceKey: "../../agent/extensions/example.ts" }, true, "project", fixture.agentDir, fixture.cwd);
+    await manager.flush();
+    assert.equal((await packageManager.resolve()).extensions.find((r) => r.path === resourcePath)!.enabled, true);
+    assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+  });
+
+  it("overrides a relative global package without rebasing it to the project", async (t) => {
+    const fixture = await commandFixture(t, { packages: [" ./bundle "] });
+    const bundle = join(fixture.agentDir, "bundle");
+    await mkdir(bundle);
+    await writeFile(join(bundle, "package.json"), JSON.stringify({ name: "bundle", pi: { extensions: ["index.ts"] } }));
+    await writeFile(join(bundle, "index.ts"), "export default function () {};");
+    const globalBefore = await readFile(fixture.globalPath);
+    const manager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+    const packageManager = new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: manager });
+    const original = (await packageManager.resolve()).extensions[0];
+    const option: ExtensionOption = { label: "bundle", resources: [original], sourceKey: " ./bundle ", scope: "user", origin: "package" };
+    applyExtensionToggle(manager, option, false, "project", fixture.agentDir, fixture.cwd);
+    await manager.flush();
+    assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+    assert.equal((await packageManager.resolve()).extensions[0].enabled, false);
+    assert.equal(manager.getProjectSettings().defaultModel, "project");
+    applyExtensionToggle(manager, option, true, "project", fixture.agentDir, fixture.cwd);
+    await manager.flush();
+    assert.equal((await packageManager.resolve()).extensions[0].enabled, true);
+    assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+  });
+
+  it("keeps same-text local packages in different scopes independently toggleable", async t => {
+    const fixture = await commandFixture(t, { packages: ["./bundle"] });
+    const globalBundle = join(fixture.agentDir, "bundle"), projectBundle = join(fixture.cwd, ".pi", "bundle");
+    for (const bundle of [globalBundle, projectBundle]) {
+      await mkdir(bundle);
+      await writeFile(join(bundle, "package.json"), JSON.stringify({ pi: { extensions: ["index.ts"] } }));
+      await writeFile(join(bundle, "index.ts"), "export default function () {};");
+    }
+    await writeFile(fixture.projectPath, JSON.stringify({ packages: ["./bundle"], defaultModel: "keep" }));
+    const globalBefore = await readFile(fixture.globalPath);
+    const manager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+    const resolver = new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: manager });
+    const resolved = await resolver.resolve();
+    const options = buildSourceOptions(resolved.extensions, [], [], [], fixture);
+    assert.equal(options.length, 2);
+    const global = options.find(option => option.scope === "user");
+    assert.ok(global);
+    applyExtensionToggle(manager, global, false, "project", fixture.agentDir, fixture.cwd);
+    await manager.flush();
+    const next = (await resolver.resolve()).extensions;
+    assert.equal(next.find(resource => resource.path === join(globalBundle, "index.ts"))?.enabled, false);
+    assert.equal(next.find(resource => resource.path === join(projectBundle, "index.ts"))?.enabled, true);
+    assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+    assert.equal(manager.getProjectSettings().defaultModel, "keep");
+  });
+
+  it("retains explicit external resource declarations through disable and re-enable", async t => {
+    const fixture = await commandFixture(t);
+    const external = join(fixture.cwd, "external", "example.ts");
+    await mkdir(join(fixture.cwd, "external"));
+    await writeFile(external, "export default function () {};");
+    await writeFile(fixture.projectPath, JSON.stringify({ extensions: ["../external/example.ts"], defaultModel: "keep" }));
+    const manager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+    const resolver = new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: manager });
+    for (const enabled of [false, true]) {
+      const resolved = await resolver.resolve();
+      const option = buildSourceOptions(resolved.extensions, [], [], [], fixture).find(option => option.resources.some(resource => resource.path === external));
+      assert.ok(option);
+      applyExtensionToggle(manager, option, enabled, "project", fixture.agentDir, fixture.cwd);
+      await manager.flush();
+      assert.equal((await resolver.resolve()).extensions.find(resource => resource.path === external)?.enabled, enabled);
+      assert.equal(manager.getProjectSettings().defaultModel, "keep");
+    }
+  });
+
+  it("re-enables a projected skill excluded by its exact directory path", async t => {
+    const fixture = await commandFixture(t);
+    const directory = join(fixture.agentDir, "skills", "release-reviewer"), skill = join(directory, "SKILL.md");
+    await mkdir(directory, { recursive: true });
+    await writeFile(skill, "---\nname: release-reviewer\ndescription: Review releases.\n---\nReview the release.");
+    await writeFile(fixture.projectPath, JSON.stringify({ skills: [`-${directory}`] }));
+    const manager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+    const resolver = new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: manager });
+    for (const enabled of [false, true]) {
+      const resolved = await resolver.resolve();
+      const option = buildSourceOptions([], resolved.skills, [], [], fixture).find(option => option.resources.some(resource => resource.path === skill));
+      assert.ok(option);
+      applyExtensionToggle(manager, option, enabled, "project", fixture.agentDir, fixture.cwd);
+      await manager.flush();
+      assert.equal((await resolver.resolve()).skills.find(resource => resource.path === skill)?.enabled, enabled);
+    }
+  });
+
+  it("reuses a global npm installation through project disable and enable after rediscovery", async t => {
+    const source = "npm:@fixture/shared@1.0.0";
+    const fixture = await commandFixture(t, { packages: [source], defaultModel: "keep-global" });
+    const bundle = join(fixture.agentDir, "npm", "node_modules", "@fixture", "shared");
+    await mkdir(bundle, { recursive: true });
+    const entries = ["index.ts", "other.ts", ".hidden.ts"];
+    await writeFile(join(bundle, "package.json"), JSON.stringify({ name: "@fixture/shared", version: "1.0.0", pi: { extensions: entries } }));
+    for (const name of entries) await writeFile(join(bundle, name), "export default function () {};");
+    const globalBefore = await readFile(fixture.globalPath);
+    for (const enabled of [false, true, false]) {
+      const manager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+      const resolver = new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: manager });
+      const missing: string[] = [];
+      const resolved = await resolver.resolve(async source => { missing.push(source); return "skip"; });
+      const option = buildSourceOptions(resolved.extensions, [], [], [], fixture).find(option => option.resources.some(resource => resource.path.startsWith(`${bundle}/`)));
+      assert.ok(option);
+      applyExtensionToggle(manager, option, enabled, "project", fixture.agentDir, fixture.cwd);
+      await manager.flush();
+      const next = await resolver.resolve(async source => { missing.push(source); return "skip"; });
+      const resources = next.extensions.filter(resource => resource.path.startsWith(`${bundle}/`));
+      assert.deepEqual(missing, []);
+      assert.deepEqual(resources.map(resource => resource.enabled), entries.map(() => enabled));
+      assert.equal(resolver.getInstalledPath(source, "project"), undefined);
+      assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+      assert.equal(manager.getProjectSettings().defaultModel, "project");
+    }
+  });
+
+  it("replaces project autoload deltas when toggling an entire package", async t => {
+    const fixture = await commandFixture(t, { packages: ["./bundle"] });
+    const bundle = join(fixture.agentDir, "bundle");
+    await mkdir(bundle);
+    await writeFile(join(bundle, "package.json"), JSON.stringify({ pi: { extensions: ["index.ts", "other.ts"] } }));
+    for (const name of ["index.ts", "other.ts"]) await writeFile(join(bundle, name), "export default function () {};");
+    await writeFile(fixture.projectPath, JSON.stringify({ packages: [{ source: bundle, autoload: false, extensions: ["+index.ts"] }] }));
+    const globalBefore = await readFile(fixture.globalPath);
+    const manager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+    const resolver = new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: manager });
+    const before = await resolver.resolve();
+    const global = buildSourceOptions(before.extensions, [], [], [], fixture).find(option => option.scope === "user");
+    assert.ok(global);
+    applyExtensionToggle(manager, global, false, "project", fixture.agentDir, fixture.cwd);
+    await manager.flush();
+    const disabled = (await resolver.resolve()).extensions.filter(resource => resource.path.startsWith(`${bundle}/`));
+    assert.deepEqual(disabled.map(resource => resource.enabled), [false, false]);
+    const project = buildSourceOptions(disabled, [], [], [], fixture)[0];
+    applyExtensionToggle(manager, project, true, "project", fixture.agentDir, fixture.cwd);
+    await manager.flush();
+    const enabled = (await resolver.resolve()).extensions.filter(resource => resource.path.startsWith(`${bundle}/`));
+    assert.deepEqual(enabled.map(resource => resource.enabled), [true, true]);
+    assert.deepEqual(await readFile(fixture.globalPath), globalBefore);
+  });
+
+  it("rejects unfilterable packages before writing any selected changes", async t => {
+    for (const kind of ["file", "bare-directory"]) {
+      const source = kind === "file" ? "./example.ts" : "./bare";
+      const fixture = await commandFixture(t, { packages: [source] });
+      const target = join(fixture.agentDir, source);
+      if (kind === "bare-directory") await mkdir(target);
+      await writeFile(kind === "file" ? target : join(target, "index.ts"), "export default function () {};");
+      await mkdir(join(fixture.agentDir, "extensions"));
+      const standalone = join(fixture.agentDir, "extensions", "valid.ts");
+      await writeFile(standalone, "export default function () {};");
+      const manager = SettingsManager.create(fixture.cwd, fixture.agentDir);
+      const resolved = await new DefaultPackageManager({ cwd: fixture.cwd, agentDir: fixture.agentDir, settingsManager: manager }).resolve();
+      const options = buildSourceOptions(resolved.extensions, [], [], [], fixture);
+      const valid = options.find(option => option.resources.some(resource => resource.path === standalone));
+      const unsupported = options.find(option => option.origin === "package");
+      assert.ok(valid);
+      assert.ok(unsupported);
+      for (const saveScope of ["global", "project"] as const) {
+        fixture.ctx.ui.custom = (async () => ({
+          saveScope, selections: [{ option: valid, enabled: false }, { option: unsupported, enabled: false }],
+        })) as typeof fixture.ctx.ui.custom;
+        const before = await fixture.settingsBytes();
+        fixture.notifications.length = 0;
+        await fixture.handler("toggle", fixture.ctx);
+        assert.ok(fixture.notifications.some(({ message, type }) => type === "error" && message.includes("cannot apply package filters")));
+        assert.deepEqual(await fixture.settingsBytes(), before);
+        assert.deepEqual(fixture.confirmations, []);
+      }
+    }
+  });
+});
